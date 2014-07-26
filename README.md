@@ -1,19 +1,24 @@
 ghnotify
 ========
 
-Sends an automatic summary email of new commits for Github repository branches that you wish to monitor.
+Sends an automatic summary email of all new commits for Github repository branches that you wish to monitor. This script is especially useful when monitoring infrequently updated repositories, saving you the time of checking for updates.
 
-Configure the repositories (owner, repository and branch) to be monitored in ./ghnotify.conf:
+Configure the repositories to be monitored in ./ghnotify.conf (owner, repository and branch, plus a "display" name that will appear in the email) :
 
 ######Example:
 ```
 #owner/repository/branch        display name
+MilhouseVH/ghnotify/master      GitHub Notify (master)
 raspberrypi/firmware/master     Raspberry Pi Firmware (master)
 raspberrypi/linux/rpi-3.15.y    Raspberry Pi Linux (3.15.y)
 OpenELEC/OpenELEC.tv/master     OpenELEC (master)
 xbmc/xbmc/master                XBMC (master)
 popcornmix/xbmc/newclock3       Popcornmix (newclock3)
+Pulse-Eight/libcec/master       libcec (master)
+sahlberg/libnfs/master          libnfs (master)
 ```
+
+Including the ghnotify repository is a handy way to be notified of any updates!
 
 Configure your github username and password in `~/.git.conf`:
 ```
