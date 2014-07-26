@@ -42,7 +42,11 @@ When run without any parameters an attempt will be made to send an email only if
 
 If it is not already installed on your system, you will need to install the `qprint` utility (`apt-get install qprint`) to encode quoted-printable text.
 
-You will also require a Mail Transfer Agent, configured with your email account details. The script has been tested with `msmtp`.
+You will require a Mail Transfer Agent, configured with your email account details. The script has been tested with `msmtp`.
+
+`python` (v2.7+) and `curl` are required.
+
+The script does *not* require the `git` utility to be installed - it communicates with github.com using the GitHub web services API.
 
 ##Sample Output
 
