@@ -40,7 +40,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.0.2"
+VERSION="v0.0.3"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -172,6 +172,15 @@ getcommitsurl()
   echo "https://github.com/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/commits/$(getcomponent 3 "$1")"
 }
 
+htmlsafe()
+{
+  local html="$1"
+  html="${html//&/&amp;}"
+  html="${html//</&lt;}"
+  html="${html//>/&gt;}"
+  echo "${html}"
+}
+
 #Stop reporting new commits if there has been no build activity during the specified period
 if [ -f ${CHECK_FILE} -a ${CHECK_INTERVAL_DAYS} -ne 0 ]; then
   DELTA=$(($(date +%s) - $(stat -c%Y ${CHECK_FILE})))
@@ -205,18 +214,16 @@ while read -r OWNER_REPO_BRANCH NAME; do
 
   ITEM="$(cat ${HTML_TEMPLATE_SUB})"
   ITEM="${ITEM//@@ITEM.URL@@/${URL}}"
-  ITEM="${ITEM//@@ITEM.SUBJECT@@/${NAME}}"
+  ITEM="${ITEM//@@ITEM.SUBJECT@@/$(htmlsafe "${NAME}")}"
   ROWS=
   EVEN=Y
   while read -r avatar_url committer title; do
     [ $EVEN == Y ] && COLOR="#f0f0f0" || COLOR="#fcfcff"
     avatar="<img src=\"${avatar_url}\" style=\"height: 20px; width: 20px\" />"
-    title="${title//</&lt;}"
-    title="${title//>/&gt;}"
-    committer="${committer//${FIELDSEP}/ }"
     ROW="<tr style=\"background-color: ${COLOR}; vertical-align: top\">"
     ROW="${ROW}<td style=\"padding-left: 10px; padding-right:10px; padding-top:2px\">${avatar}</td>"
-    ROW="${ROW}<td style=\"padding-right: 10px; width: 100%\">${title}<br/><span style=\"font-size: 6pt; color: grey\">${committer}</span></td>"
+    ROW="${ROW}<td style=\"padding-right: 10px; width: 100%\">$(htmlsafe "${title}")<br>"
+    ROW="${ROW}<span style=\"font-size: 6pt; color: grey\">$(htmlsafe "${committer//${FIELDSEP}/ }")</span></td>"
     ROW="${ROW}</tr>"
     [ -n "${ROWS}" ] && ROWS="${ROWS}${NEWLINE}${ROW}" || ROWS="${ROW}"
     [ $EVEN == Y ] && EVEN=N || EVEN=Y
@@ -238,6 +245,7 @@ if [ -n "${BODY}" ]; then
   fi
 
   STATUS="Processed: ${PROCESSED}, Unavailable: ${UNAVAILABLE}"
+  UNAV_NAME="$(htmlsafe "${UNAV_NAME}")"
   [ -n "${UNAV_NAME}" ] &&  STATUS="${STATUS}<span>${UNAV_NAME//${FIELDSEP}/</span><br>${NEWLINE}Unavailable: <span style=\"color:red\">}</span>"
 
   PAGE="$(cat ${HTML_TEMPLATE_MAIN})"
