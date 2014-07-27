@@ -40,7 +40,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.0.1"
+VERSION="v0.0.2"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -108,7 +108,7 @@ getlatestsha()
 {
   URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/commits?per_page=1&sha=$(getcomponent 3 "$1")"
   RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
-[ ! -f /tmp/a ] && echo "${RESPONSE}" >/tmp/a
+
   echo "${RESPONSE}" | python -c '
 import sys, json
 data=[]
@@ -182,11 +182,15 @@ fi
 cp ${FDATA} ${FDATA_TMP} 
 
 BODY=
+PROCESSED=0
+UNAVAILABLE=0
+UNAV_NAME=
 while read -r OWNER_REPO_BRANCH NAME; do
   printf "Processing: %-35s" "${NAME}... "
+  PROCESSED=$((PROCESSED+1))
 
   CRNT="$(getlatestsha ${OWNER_REPO_BRANCH})" || die 1 "Failed to obtain current SHA for repository [${OWNER_REPO_BRANCH}]"
-  [ -z "${CRNT}" ] && echo "UNAVAILABLE" && continue
+  [ -z "${CRNT}" ] && echo "UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAV_NAME="${UNAV_NAME}${FIELDSEP}${NAME}" && continue
 
   LAST="$(grep "^${OWNER_REPO_BRANCH}" ${FDATA_TMP} | tail -1 | awk '{ print $2 }')"
 
@@ -233,8 +237,12 @@ if [ -n "${BODY}" ]; then
     echo "Content-Transfer-Encoding: quoted-printable" >>${TMPFILE}
   fi
 
+  STATUS="Processed: ${PROCESSED}, Unavailable: ${UNAVAILABLE}"
+  [ -n "${UNAV_NAME}" ] &&  STATUS="${STATUS}<span>${UNAV_NAME//${FIELDSEP}/</span></br>${NEWLINE}Unavailable: <span style=\"color:red\">}</span>"
+
   PAGE="$(cat ${HTML_TEMPLATE_MAIN})"
   PAGE="${PAGE//@@BODY.DETAIL@@/${BODY}}"
+  PAGE="${PAGE//@@SCRIPT.STATUS@@/${STATUS}}"
   PAGE="${PAGE//@@SCRIPT.VERSION@@/${VERSION}}"
 
   if [ ${DEBUG} == N ]; then
