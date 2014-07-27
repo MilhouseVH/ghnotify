@@ -238,7 +238,7 @@ if [ -n "${BODY}" ]; then
   fi
 
   STATUS="Processed: ${PROCESSED}, Unavailable: ${UNAVAILABLE}"
-  [ -n "${UNAV_NAME}" ] &&  STATUS="${STATUS}<span>${UNAV_NAME//${FIELDSEP}/</span></br>${NEWLINE}Unavailable: <span style=\"color:red\">}</span>"
+  [ -n "${UNAV_NAME}" ] &&  STATUS="${STATUS}<span>${UNAV_NAME//${FIELDSEP}/</span><br>${NEWLINE}Unavailable: <span style=\"color:red\">}</span>"
 
   PAGE="$(cat ${HTML_TEMPLATE_MAIN})"
   PAGE="${PAGE//@@BODY.DETAIL@@/${BODY}}"
