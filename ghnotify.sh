@@ -40,7 +40,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.0.3"
+VERSION="v0.0.4"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -58,17 +58,10 @@ CHECK_FILE=${BIN}/patches.dat
 # msmtp_safe is a personalised wrapper for msmpt that will retry transmission
 # up to 10 times in the event of msmpt timing out.
 #
-for emailclient in sendmail ssmtp msmtp msmtp_safe; do
-  command -v ${emailclient} 2>&1 >/dev/null && BIN_MTA="$(command -v ${emailclient})"
-done
-
 GITAPI="https://api.github.com/repos"
 FCONF=${BIN}/ghnotify.conf
 FDATA=${BIN}/ghnotify.dat
 FDATA_TMP=${BIN}/ghnotify.dat.tmp
-
-HTML_TEMPLATE_MAIN=${BIN}/ghnotify.template.main
-HTML_TEMPLATE_SUB=${BIN}/ghnotify.template.sub
 
 FIELDSEP=$'\001'
 NEWLINE=$'\012'
@@ -88,16 +81,6 @@ die() {
   warn "$@ - terminating"
   exit "$st"
 }
-
-[ "$1" == "debug" ] && DEBUG=Y || DEBUG=N
-
-[ -f ~/.git.conf ] && source ~/.git.conf
-[ -n "${GIT_USERNAME}" -a -n "${GIT_PASSWORD}" ] && AUTHENTICATION="-u ${GIT_USERNAME}:${GIT_PASSWORD}"
-
-[ ! -f ${FCONF} ]              && die 1 "Cannot find configuration file [${FCONF}]"
-[ ! -f ${HTML_TEMPLATE_MAIN} ] && die 1 "Cannot find primary template file [${HTML_TEMPLATE_MAIN}]"
-[ ! -f ${HTML_TEMPLATE_SUB} ]  && die 1 "Cannot find secondary template file [${HTML_TEMPLATE_SUB}]"
-[ ! -x ${BIN_MTA} ]            && die 1 "Email client not found [${BIN_MTA}]"
 
 getcomponent()
 {
@@ -126,9 +109,12 @@ getcommitdetails()
 {
   URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/compare/$2...$3"
   RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
+#  echo "${RESPONSE}" >./dbg_$(echo "$1"|sed "s#/#_#g")
 
   echo "${RESPONSE}" | python -c '
-import sys, json, datetime
+import sys, json, datetime, urllib2
+
+DEFAULT_AVATAR="https://assets-cdn.github.com/images/gravatars/gravatar-user-420.png"
 
 def whendelta(when):
   dt = datetime.datetime.now() - datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")
@@ -140,17 +126,47 @@ def whendelta(when):
   mins = dt.seconds / 60
   return "%s minute%s ago" % (mins, "s"[mins==1:])
 
+def setavatar(list, creator):
+  id = creator.get("login", creator.get("name", ""))
+
+  if id and id not in list:
+    if "gravatar_id" in creator and creator["gravatar_id"]:
+      default_avatar = urllib2.quote(creator["avatar_url"], "()") if creator["avatar_url"] else urllib2.quote(DEFAULT_AVATAR, "()") 
+      list[id] = {"url": "https://1.gravatar.com/avatar/%s?d=%s" % (creator["gravatar_id"], default_avatar), "isgravatar": True}
+    elif creator["avatar_url"]:
+      url = creator["avatar_url"]
+      url = url[:-1] if url[-1:] == "?" else url
+      list[id] = { "url": url, "isgravatar": False}
+
+  return
+
+def getavatar(list, creator, size=20):
+  id = creator.get("login", creator.get("name", ""))
+  if id and id in list:
+    avatar = list[id]
+    if avatar["isgravatar"]:
+      return "%s&r=x&s=%d" % (avatar["url"], size)
+    else:
+      return "%s?s=%d" % (avatar["url"], size)
+  else:
+    return "%s?s=%d" % (DEFAULT_AVATAR, size)
+
 data=[]
 for line in sys.stdin: data.append(line)
 jdata = json.loads("".join(data))
 if "commits" in jdata:
   try:
+    avatars = {}
+    for c in jdata["commits"]:
+      if c["author"]: setavatar(avatars, c["author"])
+      if c["committer"]: setavatar(avatars, c["committer"])
+
     for c in reversed(jdata["commits"]):
       if c["author"]:
-        avatar_url = "%ss=20" % c["author"]["avatar_url"]
+        avatar_url = getavatar(avatars, c["author"])
         author = c["author"]["login"]
       else:
-        avatar_url = "https://i2.wp.com/assets-cdn.github.com/images/gravatars/gravatar-user-420.png?ssl=1&s=20"
+        avatar_url = getavatar(avatars, c["commit"]["author"])
         author = c["commit"]["author"]["name"]
 
       commitdata = "%s authored %s" % (author, whendelta(c["commit"]["author"]["date"]))
@@ -181,7 +197,100 @@ htmlsafe()
   echo "${html}"
 }
 
-#Stop reporting new commits if there has been no build activity during the specified period
+HTML_MAIN="$(cat <<EOF
+<html lang="en-US" dir="LTR">
+<head>
+  <meta charset="UTF-8" />
+  <title>New GitHub Commits</title>
+</head>
+<body dir="LTR" text="#141414" bgcolor="#f0f0f0" link="#176093" alink="#176093" vlink="#176093" style="padding: 10px">
+  <table cellpadding="0" cellspacing="0" border="0" dir="LTR" style="
+    background-color: #f0f7fc;
+    border: 1px solid #a5cae4;
+    border-radius: 5px;
+    direction: LTR;">
+    <tr>
+      <td style="
+        background-color: #d7edfc;
+        padding: 5px 10px;
+        border-bottom: 1px solid #a5cae4;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        font-family: 'Trebuchet MS', Helvetica, Arial, sans-serif;
+        font-size: 11px;
+        line-height: 1.231;">
+        <div style="color: #176093; text-decoration:none">New GitHub Commits</div>
+      </td>
+    </tr>
+  @@BODY.DETAIL@@
+    <tr>
+      <td style="
+        background-color: #f0f7fc;
+        padding: 5px 10px;
+        border-top: 1px solid #d7edfc;
+        border-bottom-left-radius: 4px;
+        border-bottom-right-radius: 4px">
+        <table style="font-family: 'Trebuchet MS', Helvetica, Arial, sans-serif;
+                      font-size: 9px;
+                      color: #176093;
+                      text-decoration:none;
+                      line-height: 1.231;
+                      width:100%">
+          <tr>
+            <td>@@SCRIPT.STATUS@@</td>
+            <td align="right" style="text-align:right;vertical-align:bottom">@@SCRIPT.VERSION@@</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+EOF
+)"
+
+HTML_SUB="$(cat <<EOF
+    <tr>
+      <td style="
+        background-color: #fcfcff;
+        color: #141414;
+        font-family: 'Trebuchet MS', Helvetica, Arial, sans-serif;
+        font-size: 13px;
+        line-height: 1.231;">
+        <h2 style="font-size: 15pt; font-weight: normal; margin: 10px 10px 0 10px"><a href="@@ITEM.URL@@" style="color: #176093; text-decoration: none">@@ITEM.SUBJECT@@</a></h2>
+        <hr style="height: 1px; margin: 10px 0; border: 0; color: #d7edfc; background-color: #d7edfc" />
+        <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 10px 0 10px">
+          <tr valign="top">
+            <td width="100%">
+              <table cellpadding="0" cellspacing="0" border="0" width="100%" style="font-size: 9pt; line-height: 1.4">
+@@ITEM.ROWS@@
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+EOF
+)"
+
+[ "$1" == "debug" ] && DEBUG=Y || DEBUG=N
+
+for emailclient in sendmail ssmtp msmtp msmtp_safe; do
+  command -v ${emailclient} 2>&1 >/dev/null && BIN_MTA="$(command -v ${emailclient})"
+done
+
+# Use a default email address if available
+EMAILTO="$(grep MAILTO /etc/crontab 2>/dev/null | awk -F= '{print $2}')"
+
+# Optionally load GIT authentication and other settings, eg. EMAILTO
+[ -f ~/.git.conf ] && source ~/.git.conf
+
+[ -n "${GIT_USERNAME}" -a -n "${GIT_PASSWORD}" ] && AUTHENTICATION="-u ${GIT_USERNAME}:${GIT_PASSWORD}"
+
+[ ! -f ${FCONF} ]              && die 1 "Cannot find configuration file [${FCONF}]"
+[ ! -x ${BIN_MTA} ]            && die 1 "Email client not found [${BIN_MTA}]"
+
+#Stop reporting new commits if there has been no build activity for longer than the specified period
 if [ -f ${CHECK_FILE} -a ${CHECK_INTERVAL_DAYS} -ne 0 ]; then
   DELTA=$(($(date +%s) - $(stat -c%Y ${CHECK_FILE})))
   [ ${DELTA} -ge $((${CHECK_INTERVAL_DAYS} * 24 * 60 * 60)) ] && die 0 "Exceeded check interval ${CHECK_INTERVAL_DAYS} days"
@@ -193,13 +302,13 @@ cp ${FDATA} ${FDATA_TMP}
 BODY=
 PROCESSED=0
 UNAVAILABLE=0
-UNAV_NAME=
+UNAVAILABLE_ITEMS=
 while read -r OWNER_REPO_BRANCH NAME; do
   printf "Processing: %-35s" "${NAME}... "
   PROCESSED=$((PROCESSED+1))
 
   CRNT="$(getlatestsha ${OWNER_REPO_BRANCH})" || die 1 "Failed to obtain current SHA for repository [${OWNER_REPO_BRANCH}]"
-  [ -z "${CRNT}" ] && echo "UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAV_NAME="${UNAV_NAME}${FIELDSEP}${NAME}" && continue
+  [ -z "${CRNT}" ] && echo "UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${NAME}" && continue
 
   LAST="$(grep "^${OWNER_REPO_BRANCH}" ${FDATA_TMP} | tail -1 | awk '{ print $2 }')"
 
@@ -212,7 +321,7 @@ while read -r OWNER_REPO_BRANCH NAME; do
 
   URL="$(getcommitsurl "${OWNER_REPO_BRANCH}")"
 
-  ITEM="$(cat ${HTML_TEMPLATE_SUB})"
+  ITEM="${HTML_SUB}"
   ITEM="${ITEM//@@ITEM.URL@@/${URL}}"
   ITEM="${ITEM//@@ITEM.SUBJECT@@/$(htmlsafe "${NAME}")}"
   ROWS=
@@ -245,10 +354,10 @@ if [ -n "${BODY}" ]; then
   fi
 
   STATUS="Processed: ${PROCESSED}, Unavailable: ${UNAVAILABLE}"
-  UNAV_NAME="$(htmlsafe "${UNAV_NAME}")"
-  [ -n "${UNAV_NAME}" ] &&  STATUS="${STATUS}<span>${UNAV_NAME//${FIELDSEP}/</span><br>${NEWLINE}Unavailable: <span style=\"color:red\">}</span>"
+  UNAVAILABLE_ITEMS="$(htmlsafe "${UNAVAILABLE_ITEMS}")"
+  [ -n "${UNAVAILABLE_ITEMS}" ] &&  STATUS="${STATUS}<span>${UNAVAILABLE_ITEMS//${FIELDSEP}/</span><br>${NEWLINE}Unavailable: <span style=\"color:red\">}</span>"
 
-  PAGE="$(cat ${HTML_TEMPLATE_MAIN})"
+  PAGE="${HTML_MAIN}"
   PAGE="${PAGE//@@BODY.DETAIL@@/${BODY}}"
   PAGE="${PAGE//@@SCRIPT.STATUS@@/${STATUS}}"
   PAGE="${PAGE//@@SCRIPT.VERSION@@/${VERSION}}"

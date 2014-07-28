@@ -1,7 +1,7 @@
 ghnotify
 ========
 
-Sends an automatic summary email of all new commits for Github repository branches that you wish to monitor. This script is especially useful when monitoring infrequently updated repositories, saving you the time of checking for updates.
+Sends an automatic summary email of all new commits for Github repository branches that you wish to monitor. This script is especially useful when monitoring infrequently updated repositories, saving you the time of manually checking for updates.
 
 Configure the repositories to be monitored in ./ghnotify.conf (owner, repository and branch, plus a "display" name that will appear in the email) :
 
@@ -28,20 +28,22 @@ GIT_PASSWORD="your_password"
 
 Github authentication is necessary to bypass [GitHub rate limiting](https://developer.github.com/v3/rate_limit/). If you don't plan on running this script very often, eg. one or twice an hour, then it may not be necessary to include authentication.
 
-Configure your "to" email address in `~/.git.conf`:
+A suitable email address will be determined from the MAILTO= property in /etc/crontab (if available), otherwise configure your "to" email address in `~/.git.conf`:
 ```
 EMAILTO="your.email@address.com"
 ```
 
-When the script is run succesfully, it will record the latest SHA for each monitored repository in `./ghnotify.dat`.
+The `~/.git.conf` file is not required if you don't require authentication and your email address can be determined automatically.
 
-The script has been tested with the msmtp MTA. Other MTAs may work, but are untested (patches welcome).
+Whenever the script is run succesfully, it will record the latest SHA for each monitored repository in `./ghnotify.dat`.
+
+The script has been tested with the msmtp MTA. Other MTAs may work (eg. sendmail, ssmtp) but are untested - patches welcome.
 
 ##Debugging
 
 Interactively run the script with the `debug` parameter to avoid sending an email, and instead a file called `email.html` will be created which can be loaded in your web browser.
 
-When run without any parameters an attempt will be made to send an email only if there has been one or more new commits.
+When run without any parameters, an email will be sent only if there has been at least one new commit.
 
 ##Dependencies
 

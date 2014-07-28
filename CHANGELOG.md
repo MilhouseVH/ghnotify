@@ -1,5 +1,10 @@
 #Changelog
 
+##Version 0.0.4 (27/07/2014)
+* Chg: Eliminate dependency on external HTML template files, now included inside main script
+* Chg: Determine default EMAILTO address from /etc/crontab MAILTO property. Overridden by ~/.git.conf if loaded and EMAILTO is present.
+* Fix: Update gravatar handling due to recent github backend changes.
+
 ##Version 0.0.3 (27/07/2014)
 * Chg: HTML sanitise all input/output fields
 
