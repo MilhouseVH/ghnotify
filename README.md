@@ -35,7 +35,7 @@ EMAILTO="your.email@address.com"
 
 The `~/.git.conf` file is not required if you don't require authentication and your email address can be determined automatically.
 
-Whenever the script is run succesfully, it will record the latest SHA for each monitored repository in `~./ghnotify.dat`.
+Whenever the script is run succesfully, it will record the latest SHA for each monitored repository in `~/ghnotify.dat`.
 
 The script has been tested with the msmtp MTA. Other MTAs may work (eg. sendmail, ssmtp) but are untested - patches welcome.
 
