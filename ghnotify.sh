@@ -40,7 +40,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.0.4"
+VERSION="v0.0.5"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -48,23 +48,6 @@ BIN=$(readlink -f $(dirname $0))
 # the last modification to the CHECK_FILE.
 CHECK_INTERVAL_DAYS=14
 CHECK_FILE=${BIN}/patches.dat
-
-#Try and find a usable mail transfer agent (MTA).
-#
-# A list of possible MTA clients is tested, and when multiple MTA clients are
-# present the last one will be used, so order them in ascending (left-to-right)
-# order of priority.
-#
-# msmtp_safe is a personalised wrapper for msmpt that will retry transmission
-# up to 10 times in the event of msmpt timing out.
-#
-GITAPI="https://api.github.com/repos"
-FCONF=${BIN}/ghnotify.conf
-FDATA=${BIN}/ghnotify.dat
-FDATA_TMP=${BIN}/ghnotify.dat.tmp
-
-FIELDSEP=$'\001'
-NEWLINE=$'\012'
 
 warn() {
   local fmt="$1"
@@ -273,8 +256,25 @@ HTML_SUB="$(cat <<EOF
 EOF
 )"
 
+GITAPI="https://api.github.com/repos"
+FIELDSEP=$'\001'
+NEWLINE=$'\012'
+
+GHNOTIFY_CONF=ghnotify.conf
+GHNOTIFY_DATA=ghnotify.dat
+GHNOTIFY_TEMP=/tmp/ghnotify.dat.tmp
+
 [ "$1" == "debug" ] && DEBUG=Y || DEBUG=N
 
+# Try and find a usable mail transfer agent (MTA).
+#
+# A list of possible MTA clients is tested for, and when multiple MTA clients are
+# present the last one will be used, so order them in ascending (left-to-right)
+# order of priority.
+#
+# msmtp_safe is a personalised wrapper for msmpt that will retry transmission
+# up to 10 times in the event of msmpt timing out.
+#
 for emailclient in sendmail ssmtp msmtp msmtp_safe; do
   command -v ${emailclient} 2>&1 >/dev/null && BIN_MTA="$(command -v ${emailclient})"
 done
@@ -282,13 +282,17 @@ done
 # Use a default email address if available
 EMAILTO="$(grep MAILTO /etc/crontab 2>/dev/null | awk -F= '{print $2}')"
 
-# Optionally load GIT authentication and other settings, eg. EMAILTO
+# Fixup config and data paths
+[ -f ~/${GHNOTIFY_CONF} ] && GHNOTIFY_CONF=~/${GHNOTIFY_CONF} || GHNOTIFY_CONF="${BIN}/${GHNOTIFY_CONF}"
+[ -f ~/${GHNOTIFY_DATA} ] && GHNOTIFY_DATA=~/${GHNOTIFY_DATA} || GHNOTIFY_DATA="${BIN}/${GHNOTIFY_DATA}"
+
+# Optionally load GIT authentication and override settings, eg. EMAILTO, GHNOTIFY_DATA etc.
 [ -f ~/.git.conf ] && source ~/.git.conf
 
 [ -n "${GIT_USERNAME}" -a -n "${GIT_PASSWORD}" ] && AUTHENTICATION="-u ${GIT_USERNAME}:${GIT_PASSWORD}"
 
-[ ! -f ${FCONF} ]              && die 1 "Cannot find configuration file [${FCONF}]"
-[ ! -x ${BIN_MTA} ]            && die 1 "Email client not found [${BIN_MTA}]"
+[ ! -f ${GHNOTIFY_CONF} ] && die 1 "Cannot find configuration file [${GHNOTIFY_CONF}]"
+[ ! -x ${BIN_MTA} ]       && die 1 "Email client not found [${BIN_MTA}]"
 
 #Stop reporting new commits if there has been no build activity for longer than the specified period
 if [ -f ${CHECK_FILE} -a ${CHECK_INTERVAL_DAYS} -ne 0 ]; then
@@ -296,8 +300,8 @@ if [ -f ${CHECK_FILE} -a ${CHECK_INTERVAL_DAYS} -ne 0 ]; then
   [ ${DELTA} -ge $((${CHECK_INTERVAL_DAYS} * 24 * 60 * 60)) ] && die 0 "Exceeded check interval ${CHECK_INTERVAL_DAYS} days"
 fi
 
-[ ! -f ${FDATA} ] && touch ${FDATA}
-cp ${FDATA} ${FDATA_TMP} 
+[ ! -f ${GHNOTIFY_DATA} ] && touch ${GHNOTIFY_DATA}
+cp ${GHNOTIFY_DATA} ${GHNOTIFY_TEMP} 
 
 BODY=
 PROCESSED=0
@@ -310,13 +314,13 @@ while read -r OWNER_REPO_BRANCH NAME; do
   CRNT="$(getlatestsha ${OWNER_REPO_BRANCH})" || die 1 "Failed to obtain current SHA for repository [${OWNER_REPO_BRANCH}]"
   [ -z "${CRNT}" ] && echo "UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${NAME}" && continue
 
-  LAST="$(grep "^${OWNER_REPO_BRANCH}" ${FDATA_TMP} | tail -1 | awk '{ print $2 }')"
+  LAST="$(grep "^${OWNER_REPO_BRANCH}" ${GHNOTIFY_TEMP} | tail -1 | awk '{ print $2 }')"
 
-  [ -z "${LAST}" ] && echo "${OWNER_REPO_BRANCH} ${CRNT}" >> ${FDATA_TMP}
+  [ -z "${LAST}" ] && echo "${OWNER_REPO_BRANCH} ${CRNT}" >> ${GHNOTIFY_TEMP}
   [ "${CRNT}" == "${LAST}" -o -z "${LAST}" ] && echo "No new commits" && continue
 
   COMMITS="$(getcommitdetails "${OWNER_REPO_BRANCH}" "${LAST}" "${CRNT}")" || die 1 "Failed to obtain commit comparison for repository [${OWNER_REPO_BRANCH}]"
-  sed -i "s${FIELDSEP}^${OWNER_REPO_BRANCH} ${LAST}${FIELDSEP}${OWNER_REPO_BRANCH} ${CRNT}${FIELDSEP}" ${FDATA_TMP}
+  sed -i "s${FIELDSEP}^${OWNER_REPO_BRANCH} ${LAST}${FIELDSEP}${OWNER_REPO_BRANCH} ${CRNT}${FIELDSEP}" ${GHNOTIFY_TEMP}
   [ -z "${COMMITS}" ] && echo "No new commits" && continue || echo "$(echo "${COMMITS}" | wc -l) new commits"
 
   URL="$(getcommitsurl "${OWNER_REPO_BRANCH}")"
@@ -340,7 +344,7 @@ while read -r OWNER_REPO_BRANCH NAME; do
 
   ITEM="${ITEM//@@ITEM.ROWS@@/${ROWS}}"
   [ -n "${BODY}" ] && BODY="${BODY}${NEWLINE}${ITEM}" || BODY="${ITEM}"
-done <<< "$(grep -v "^#" ${FCONF})"
+done <<< "$(grep -v "^#" ${GHNOTIFY_CONF})"
 
 if [ -n "${BODY}" ]; then
   TMPFILE=$(mktemp)
@@ -364,7 +368,7 @@ if [ -n "${BODY}" ]; then
 
   if [ ${DEBUG} == N ]; then
     echo "${PAGE}" | qprint -be >> ${TMPFILE}
-    cat ${TMPFILE} | ${BIN_MTA} && mv ${FDATA_TMP} ${FDATA} 
+    cat ${TMPFILE} | ${BIN_MTA} && mv ${GHNOTIFY_TEMP} ${GHNOTIFY_DATA}
   else
     echo "${PAGE}" >> ${TMPFILE}
     mv ${TMPFILE} ${BIN}/email.html
@@ -373,6 +377,6 @@ if [ -n "${BODY}" ]; then
   rm -f ${TMPFILE}
 fi
 
-rm -f ${FDATA_TMP}
+rm -f ${GHNOTIFY_TEMP}
 
 exit 0

@@ -3,7 +3,7 @@ ghnotify
 
 Sends an automatic summary email of all new commits for Github repository branches that you wish to monitor. This script is especially useful when monitoring infrequently updated repositories, saving you the time of manually checking for updates.
 
-Configure the repositories to be monitored in ./ghnotify.conf (owner, repository and branch, plus a "display" name that will appear in the email) :
+Configure the repositories to be monitored in `~/ghnotify.conf` (owner, repository and branch, plus a "display" name that will appear in the email) :
 
 ######Example:
 ```
@@ -35,7 +35,7 @@ EMAILTO="your.email@address.com"
 
 The `~/.git.conf` file is not required if you don't require authentication and your email address can be determined automatically.
 
-Whenever the script is run succesfully, it will record the latest SHA for each monitored repository in `./ghnotify.dat`.
+Whenever the script is run succesfully, it will record the latest SHA for each monitored repository in `~./ghnotify.dat`.
 
 The script has been tested with the msmtp MTA. Other MTAs may work (eg. sendmail, ssmtp) but are untested - patches welcome.
 
