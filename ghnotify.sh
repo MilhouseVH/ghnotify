@@ -14,7 +14,7 @@
 #   <owner/repository/branch> <name of monitored repository>
 #
 # Example:.
-#   
+#
 #   raspberrypi/firmware/master     Raspberry Pi Firmware
 #
 # Writes the latest SHA of each monitored repository to ./ghnotify.dat.
@@ -28,7 +28,7 @@
 # rate limits. Authentication is optional, and may be unecessary depending on
 # often you query GitHub, and how many repositories are being monitored. See
 # GitHub API for details on rate limiting: https://developer.github.com/v3/rate_limit
-# 
+#
 # Also specify your email address in ~/.git.conf:
 #
 #   GIT_USERNAME="username"
@@ -40,7 +40,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.0.5"
+VERSION="v0.0.6"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -98,39 +98,44 @@ getcommitdetails()
 import sys, json, datetime, urllib2
 
 DEFAULT_AVATAR="https://assets-cdn.github.com/images/gravatars/gravatar-user-420.png"
+NOW_DATE=datetime.datetime.now()
+NOW_YEAR=NOW_DATE.strftime("%Y")
 
 def whendelta(when):
-  dt = datetime.datetime.now() - datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")
-  if dt.days > 0:
-    return "%s day%s ago" % (dt.days, "s"[dt.days==1:])
-  hours = dt.seconds / 3600
+  when_date = datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")
+  when_year = when[:4]
+  delta = NOW_DATE - when_date
+
+  if delta.days > 30:
+    if NOW_YEAR != when_year:
+      return "on %s" % when_date.strftime("%d %b %Y")
+    else:
+      return "on %s" % when_date.strftime("%d %b")
+  if delta.days > 0:
+    return "%s day%s ago" % (delta.days, "s"[delta.days==1:])
+  hours = delta.seconds / 3600
   if hours > 0:
     return "%s hour%s ago" % (hours, "s"[hours==1:])
-  mins = dt.seconds / 60
+  mins = delta.seconds / 60
   return "%s minute%s ago" % (mins, "s"[mins==1:])
 
 def setavatar(list, creator):
   id = creator.get("login", creator.get("name", ""))
-
   if id and id not in list:
-    if "gravatar_id" in creator and creator["gravatar_id"]:
-      default_avatar = urllib2.quote(creator["avatar_url"], "()") if creator["avatar_url"] else urllib2.quote(DEFAULT_AVATAR, "()") 
-      list[id] = {"url": "https://1.gravatar.com/avatar/%s?d=%s" % (creator["gravatar_id"], default_avatar), "isgravatar": True}
-    elif creator["avatar_url"]:
-      url = creator["avatar_url"]
-      url = url[:-1] if url[-1:] == "?" else url
-      list[id] = { "url": url, "isgravatar": False}
-
+    url = creator.get("avatar_url", DEFAULT_AVATAR)
+    url = url[:-1] if url[-1:] == "?" else url
+    list[id] = {"avatar": url, "gravatar": creator.get("gravatar_id", None) }
   return
 
-def getavatar(list, creator, size=20):
+def getavatar(list, creator, size=20, enable_gravatar=False):
   id = creator.get("login", creator.get("name", ""))
   if id and id in list:
-    avatar = list[id]
-    if avatar["isgravatar"]:
-      return "%s&r=x&s=%d" % (avatar["url"], size)
+    avatar = list[id]["avatar"]
+    gravatar = list[id]["gravatar"]
+    if gravatar and enable_gravatar:
+      return "https://1.gravatar.com/avatar/%s?d=%s&r=x&s=%d" % (gravatar, urllib2.quote(avatar, "()"), size)
     else:
-      return "%s?s=%d" % (avatar["url"], size)
+      return "%s?s=%d" % (avatar, size)
   else:
     return "%s?s=%d" % (DEFAULT_AVATAR, size)
 
@@ -153,9 +158,11 @@ if "commits" in jdata:
         author = c["commit"]["author"]["name"]
 
       commitdata = "%s authored %s" % (author, whendelta(c["commit"]["author"]["date"]))
-      
-      if c["committer"] and c["committer"]["login"] != author:
-        commitdata = "%s (%s committed %s)" % (commitdata, c["committer"]["login"], whendelta(c["commit"]["committer"]["date"]))
+
+      if c["commit"]["committer"] and c["commit"]["author"]:
+         if c["commit"]["committer"]["name"] != c["commit"]["author"]["name"] or \
+            c["commit"]["committer"]["email"] != c["commit"]["author"]["email"]:
+           commitdata = "%s (%s committed %s)" % (commitdata, c["commit"]["committer"]["name"], whendelta(c["commit"]["committer"]["date"]))
 
       message = c["commit"]["message"].split("\n")[0]
       print("%s %s %s" % (avatar_url, commitdata.replace(" ", "\001"), message))
@@ -301,7 +308,7 @@ if [ -f ${CHECK_FILE} -a ${CHECK_INTERVAL_DAYS} -ne 0 ]; then
 fi
 
 [ ! -f ${GHNOTIFY_DATA} ] && touch ${GHNOTIFY_DATA}
-cp ${GHNOTIFY_DATA} ${GHNOTIFY_TEMP} 
+cp ${GHNOTIFY_DATA} ${GHNOTIFY_TEMP}
 
 BODY=
 PROCESSED=0

@@ -1,5 +1,9 @@
 #Changelog
 
+##Version 0.0.6 (29/07/2014)
+* Fix: Author/commit dates more than 30 days ago, or in a different year, need their own format
+* Chg: Disable gravatar support, seems to be a bit flakey
+
 ##Version 0.0.5 (29/07/2014)
 * Chg: Default location for ghnotify.conf and ghnotify.dat is now ~, ie. `~/ghnotify.conf`. If not found in ~, then look in script directory.
 
