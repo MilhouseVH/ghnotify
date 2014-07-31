@@ -40,7 +40,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.0.6"
+VERSION="v0.0.7"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -92,32 +92,47 @@ getcommitdetails()
 {
   URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/compare/$2...$3"
   RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
-#  echo "${RESPONSE}" >./dbg_$(echo "$1"|sed "s#/#_#g")
+  [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >./dbg_$(echo "$1"|sed "s#/#_#g")
 
   echo "${RESPONSE}" | python -c '
-import sys, json, datetime, urllib2
+import os, sys, json, datetime, urllib2
 
+DEBUGGING=os.environ.get("DEBUG")
 DEFAULT_AVATAR="https://assets-cdn.github.com/images/gravatars/gravatar-user-420.png"
-NOW_DATE=datetime.datetime.now()
+NOW_DATE=datetime.datetime.utcnow()
 NOW_YEAR=NOW_DATE.strftime("%Y")
+
+def debug(msg):
+  if DEBUGGING:
+    sys.stderr.write("%s\n" % msg)
 
 def whendelta(when):
   when_date = datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")
   when_year = when[:4]
   delta = NOW_DATE - when_date
 
+  debug("UTC Now: %s, When: %s, Delta: %s" % (NOW_DATE, when_date, delta))
+
   if delta.days > 30:
     if NOW_YEAR != when_year:
       return "on %s" % when_date.strftime("%d %b %Y")
     else:
       return "on %s" % when_date.strftime("%d %b")
+
   if delta.days > 0:
     return "%s day%s ago" % (delta.days, "s"[delta.days==1:])
-  hours = delta.seconds / 3600
-  if hours > 0:
-    return "%s hour%s ago" % (hours, "s"[hours==1:])
-  mins = delta.seconds / 60
-  return "%s minute%s ago" % (mins, "s"[mins==1:])
+
+  if delta.seconds >= 3600:
+    hours = int(round(float(delta.seconds) / 3600))
+    if hours > 0:
+      if hours == 1:
+        return "an hour ago"
+      else:
+        return "%s hours ago" % (hours)
+  else:
+    mins = int(round(float(delta.seconds) / 60))
+    return "%s minute%s ago" % (mins, "s"[mins==1:])
+
 
 def setavatar(list, creator):
   id = creator.get("login", creator.get("name", ""))
@@ -143,6 +158,7 @@ data=[]
 for line in sys.stdin: data.append(line)
 jdata = json.loads("".join(data))
 if "commits" in jdata:
+  debug("\n%d commits loaded for %s" % (len(jdata["commits"]), jdata["url"]))
   try:
     avatars = {}
     for c in jdata["commits"]:
@@ -166,6 +182,11 @@ if "commits" in jdata:
 
       message = c["commit"]["message"].split("\n")[0]
       print("%s %s %s" % (avatar_url, commitdata.replace(" ", "\001"), message))
+
+      debug("  Message : %s" % message)
+      debug("  Avatar  : %s" % avatar_url)
+      debug("  Who/When: %s" % commitdata)
+
   except:
     raise
     sys.exit(1)
@@ -271,7 +292,13 @@ GHNOTIFY_CONF=ghnotify.conf
 GHNOTIFY_DATA=ghnotify.dat
 GHNOTIFY_TEMP=/tmp/ghnotify.dat.tmp
 
-[ "$1" == "debug" ] && DEBUG=Y || DEBUG=N
+NOEMAIL=N
+for arg in $@; do
+  case "${arg}" in
+    debug)   NOEMAIL=Y; export DEBUG=Y;;
+    noemail) NOEMAIL=Y;;
+  esac
+done
 
 # Try and find a usable mail transfer agent (MTA).
 #
@@ -357,7 +384,7 @@ if [ -n "${BODY}" ]; then
   TMPFILE=$(mktemp)
   rm -fr ${TMPFILE}
 
-  if [ ${DEBUG} == N ]; then
+  if [ ${NOEMAIL} == N ]; then
     echo "To: ${EMAILTO}" >> ${TMPFILE}
     echo "Subject: New GitHub Commits" >> ${TMPFILE}
     echo "Content-Type: text/html; charset=utf-8" >> ${TMPFILE}
@@ -373,7 +400,7 @@ if [ -n "${BODY}" ]; then
   PAGE="${PAGE//@@SCRIPT.STATUS@@/${STATUS}}"
   PAGE="${PAGE//@@SCRIPT.VERSION@@/${VERSION}}"
 
-  if [ ${DEBUG} == N ]; then
+  if [ ${NOEMAIL} == N ]; then
     echo "${PAGE}" | qprint -be >> ${TMPFILE}
     cat ${TMPFILE} | ${BIN_MTA} && mv ${GHNOTIFY_TEMP} ${GHNOTIFY_DATA}
   else

@@ -1,5 +1,9 @@
 #Changelog
 
+##Version 0.0.7 (31/07/2014)
+* Chg: Use UTC date when calculating time deltas
+* Add: Extra debugging for `debug` option (more output, dumping data into dbg* files, not sending email). Change original `debug` option to `noemail`.
+
 ##Version 0.0.6 (29/07/2014)
 * Fix: Author/commit dates more than 30 days ago, or in a different year, need their own format
 * Chg: Disable gravatar support, seems to be a bit flakey

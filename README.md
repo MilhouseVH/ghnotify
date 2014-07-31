@@ -41,7 +41,9 @@ The script has been tested with the msmtp MTA. Other MTAs may work (eg. sendmail
 
 ##Debugging
 
-Interactively run the script with the `debug` parameter to avoid sending an email, and instead a file called `email.html` will be created which can be loaded in your web browser.
+Interactively run the script with the `noemail` parameter to avoid sending an email, and instead a file called `email.html` will be created which can be loaded in your web browser. The `ghnotify.dat` file will not be updated unless an email is sent successfully.
+
+Use the `debug` option to output additional information. Data for each repository/branch that has at least one commit will be dumped into a file prefixed with `dbg_` for subsequent analysis. `debug` implies `noemail`.
 
 When run without any parameters, an email will be sent only if there has been at least one new commit.
 
