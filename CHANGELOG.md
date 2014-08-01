@@ -1,5 +1,8 @@
 #Changelog
 
+##Version 0.0.8 (01/08/2014)
+* Fix: Support UTF-8 encoding of usernames containing non-ASCII characters
+
 ##Version 0.0.7 (31/07/2014)
 * Chg: Use UTC date when calculating time deltas
 * Add: Extra debugging for `debug` option (more output, dumping data into dbg* files, not sending email). Change original `debug` option to `noemail`.

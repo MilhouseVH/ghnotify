@@ -40,7 +40,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.0.7"
+VERSION="v0.0.8"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -92,15 +92,22 @@ getcommitdetails()
 {
   URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/compare/$2...$3"
   RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
-  [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >./dbg_$(echo "$1"|sed "s#/#_#g")
+  [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >${BIN}/dbg_$(echo "$1"|sed "s#/#_#g")
 
   echo "${RESPONSE}" | python -c '
-import os, sys, json, datetime, urllib2
+import os, sys, json, datetime, urllib2, codecs
 
 DEBUGGING=os.environ.get("DEBUG")
 DEFAULT_AVATAR="https://assets-cdn.github.com/images/gravatars/gravatar-user-420.png"
 NOW_DATE=datetime.datetime.utcnow()
 NOW_YEAR=NOW_DATE.strftime("%Y")
+
+if sys.version_info >= (3, 1):
+  sys.stdout = codecs.getwriter("utf-8")(sys.stdout.detach())
+  sys.stderr = codecs.getwriter("utf-8")(sys.stderr.detach())
+else:
+  sys.stdout = codecs.getwriter("utf-8")(sys.stdout)
+  sys.stderr = codecs.getwriter("utf-8")(sys.stderr)
 
 def debug(msg):
   if DEBUGGING:
@@ -132,7 +139,6 @@ def whendelta(when):
   else:
     mins = int(round(float(delta.seconds) / 60))
     return "%s minute%s ago" % (mins, "s"[mins==1:])
-
 
 def setavatar(list, creator):
   id = creator.get("login", creator.get("name", ""))
