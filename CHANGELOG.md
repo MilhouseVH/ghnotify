@@ -1,6 +1,6 @@
 #Changelog
 
-##Version 0.0.8 (01/08/2014)
+##Version 0.0.9 (04/08/2014)
 * Add: Support pull request links in commit descriptions
 
 ##Version 0.0.8 (01/08/2014)
