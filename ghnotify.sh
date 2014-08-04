@@ -40,7 +40,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.0.8"
+VERSION="v0.0.9"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -95,7 +95,7 @@ getcommitdetails()
   [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >${BIN}/dbg_$(echo "$1"|sed "s#/#_#g")
 
   echo "${RESPONSE}" | python -c '
-import os, sys, json, datetime, urllib2, codecs
+import os, sys, json, datetime, urllib2, codecs, re
 
 DEBUGGING=os.environ.get("DEBUG")
 DEFAULT_AVATAR="https://assets-cdn.github.com/images/gravatars/gravatar-user-420.png"
@@ -160,12 +160,21 @@ def getavatar(list, creator, size=20, enable_gravatar=False):
   else:
     return "%s?s=%d" % (DEFAULT_AVATAR, size)
 
+def htmlsafe(input):
+  if input:
+    return input.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+  else:
+    return input
+
 data=[]
 for line in sys.stdin: data.append(line)
 jdata = json.loads("".join(data))
 if "commits" in jdata:
   debug("\n%d commits loaded for %s" % (len(jdata["commits"]), jdata["url"]))
   try:
+    PULL_URL = re.sub("compare/[a-z0-9]*...[a-z0-9]*$", "pull/", jdata["html_url"])
+    RE_PULL  = re.compile("#([0-9]+)")
+
     avatars = {}
     for c in jdata["commits"]:
       if c["author"]: setavatar(avatars, c["author"])
@@ -186,8 +195,10 @@ if "commits" in jdata:
             c["commit"]["committer"]["email"] != c["commit"]["author"]["email"]:
            commitdata = "%s (%s committed %s)" % (commitdata, c["commit"]["committer"]["name"], whendelta(c["commit"]["committer"]["date"]))
 
-      message = c["commit"]["message"].split("\n")[0]
-      print("%s %s %s" % (avatar_url, commitdata.replace(" ", "\001"), message))
+      message = htmlsafe(c["commit"]["message"].split("\n")[0])
+      message = RE_PULL.sub("<a href=\"%s\\1\">#\\1</a>" % PULL_URL, message)
+      
+      print("%s %s %s" % (avatar_url, htmlsafe(commitdata.replace(" ", "\001")), message))
 
       debug("  Message : %s" % message)
       debug("  Avatar  : %s" % avatar_url)
@@ -375,8 +386,8 @@ while read -r OWNER_REPO_BRANCH NAME; do
     avatar="<img src=\"${avatar_url}\" style=\"height: 20px; width: 20px\" />"
     ROW="<tr style=\"background-color: ${COLOR}; vertical-align: top\">"
     ROW="${ROW}<td style=\"padding-left: 10px; padding-right:10px; padding-top:2px\">${avatar}</td>"
-    ROW="${ROW}<td style=\"padding-right: 10px; width: 100%\">$(htmlsafe "${title}")<br>"
-    ROW="${ROW}<span style=\"font-size: 6pt; color: grey\">$(htmlsafe "${committer//${FIELDSEP}/ }")</span></td>"
+    ROW="${ROW}<td style=\"padding-right: 10px; width: 100%\">${title}<br>"
+    ROW="${ROW}<span style=\"font-size: 6pt; color: grey\">${committer//${FIELDSEP}/ }</span></td>"
     ROW="${ROW}</tr>"
     [ -n "${ROWS}" ] && ROWS="${ROWS}${NEWLINE}${ROW}" || ROWS="${ROW}"
     [ $EVEN == Y ] && EVEN=N || EVEN=Y

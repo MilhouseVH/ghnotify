@@ -1,6 +1,9 @@
 #Changelog
 
 ##Version 0.0.8 (01/08/2014)
+* Add: Support pull request links in commit descriptions
+
+##Version 0.0.8 (01/08/2014)
 * Fix: Support UTF-8 encoding of usernames containing non-ASCII characters
 
 ##Version 0.0.7 (31/07/2014)
