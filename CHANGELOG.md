@@ -1,5 +1,8 @@
 #Changelog
 
+##Version 0.1.0 (10/08/2014)
+* Add: Include summary of updated repos in header
+
 ##Version 0.0.9 (04/08/2014)
 * Add: Support pull request links in commit descriptions
 

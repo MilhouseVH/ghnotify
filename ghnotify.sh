@@ -40,7 +40,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.0.9"
+VERSION="v0.1.0"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -247,7 +247,7 @@ HTML_MAIN="$(cat <<EOF
         font-family: 'Trebuchet MS', Helvetica, Arial, sans-serif;
         font-size: 11px;
         line-height: 1.231;">
-        <div style="color: #176093; text-decoration:none">New GitHub Commits</div>
+        <div style="color: #176093; text-decoration:none">New GitHub Commits: @@REPO.SUMMARY@@</div>
       </td>
     </tr>
   @@BODY.DETAIL@@
@@ -358,12 +358,15 @@ BODY=
 PROCESSED=0
 UNAVAILABLE=0
 UNAVAILABLE_ITEMS=
+UPDATED_ITEMS=
 while read -r OWNER_REPO_BRANCH NAME; do
   printf "Processing: %-35s" "${NAME}... "
+
   PROCESSED=$((PROCESSED+1))
+  SAFE_NAME="$(htmlsafe "${NAME}")"
 
   CRNT="$(getlatestsha ${OWNER_REPO_BRANCH})" || die 1 "Failed to obtain current SHA for repository [${OWNER_REPO_BRANCH}]"
-  [ -z "${CRNT}" ] && echo "UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${NAME}" && continue
+  [ -z "${CRNT}" ] && echo "UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${SAFE_NAME}" && continue
 
   LAST="$(grep "^${OWNER_REPO_BRANCH}" ${GHNOTIFY_TEMP} | tail -1 | awk '{ print $2 }')"
 
@@ -378,7 +381,7 @@ while read -r OWNER_REPO_BRANCH NAME; do
 
   ITEM="${HTML_SUB}"
   ITEM="${ITEM//@@ITEM.URL@@/${URL}}"
-  ITEM="${ITEM//@@ITEM.SUBJECT@@/$(htmlsafe "${NAME}")}"
+  ITEM="${ITEM//@@ITEM.SUBJECT@@/${NAME}}"
   ROWS=
   EVEN=Y
   while read -r avatar_url committer title; do
@@ -395,6 +398,8 @@ while read -r OWNER_REPO_BRANCH NAME; do
 
   ITEM="${ITEM//@@ITEM.ROWS@@/${ROWS}}"
   [ -n "${BODY}" ] && BODY="${BODY}${NEWLINE}${ITEM}" || BODY="${ITEM}"
+
+  UPDATED_ITEMS="${UPDATED_ITEMS}${FIELDSEP}${SAFE_NAME}"
 done <<< "$(grep -v "^#" ${GHNOTIFY_CONF})"
 
 if [ -n "${BODY}" ]; then
@@ -409,10 +414,12 @@ if [ -n "${BODY}" ]; then
   fi
 
   STATUS="Processed: ${PROCESSED}, Unavailable: ${UNAVAILABLE}"
-  UNAVAILABLE_ITEMS="$(htmlsafe "${UNAVAILABLE_ITEMS}")"
   [ -n "${UNAVAILABLE_ITEMS}" ] &&  STATUS="${STATUS}<span>${UNAVAILABLE_ITEMS//${FIELDSEP}/</span><br>${NEWLINE}Unavailable: <span style=\"color:red\">}</span>"
 
+  UPDATED_ITEMS="${UPDATED_ITEMS//${FIELDSEP}/, }"
+
   PAGE="${HTML_MAIN}"
+  PAGE="${PAGE//@@REPO.SUMMARY@@/${UPDATED_ITEMS:2}}"
   PAGE="${PAGE//@@BODY.DETAIL@@/${BODY}}"
   PAGE="${PAGE//@@SCRIPT.STATUS@@/${STATUS}}"
   PAGE="${PAGE//@@SCRIPT.VERSION@@/${VERSION}}"
