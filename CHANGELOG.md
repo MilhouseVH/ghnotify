@@ -1,5 +1,8 @@
 #Changelog
 
+##Version 0.1.1 (13/08/2014)
+* Chg: Use full sha rather than first 7 chars when performing comparison, to avoid collisions.
+
 ##Version 0.1.0 (10/08/2014)
 * Add: Include summary of updated repos in header
 

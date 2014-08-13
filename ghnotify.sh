@@ -40,7 +40,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.1.0"
+VERSION="v0.1.1"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -82,7 +82,7 @@ for line in sys.stdin: data.append(line)
 jdata = json.loads("".join(data))
 for item in jdata:
   if "sha" in item:
-    print("%s" % item["sha"][:7])
+    print("%s" % item["sha"])
   break
 '
   return 0
