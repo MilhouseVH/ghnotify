@@ -426,12 +426,12 @@ if [ -f ${CHECK_FILE} -a ${CHECK_INTERVAL_DAYS} -ne 0 ]; then
   [ ${DELTA} -ge $((${CHECK_INTERVAL_DAYS} * 24 * 60 * 60)) ] && die 0 "Exceeded check interval ${CHECK_INTERVAL_DAYS} days"
 fi
 
-if [ $COMMITS = Y ]; then
+if [ ${COMMITS} = Y ]; then
   [ ! -f ${GHNOTIFY_CDATA} ] && touch ${GHNOTIFY_CDATA}
   cp ${GHNOTIFY_CDATA} ${GHNOTIFY_CTEMP}
 fi
 
-if [ $PULLREQ = Y ]; then
+if [ ${PULLREQ} = Y ]; then
   [ ! -f ${GHNOTIFY_PDATA} ] && touch ${GHNOTIFY_PDATA}
   cp ${GHNOTIFY_PDATA} ${GHNOTIFY_PTEMP}
 fi
@@ -450,7 +450,7 @@ while read -r OWNER_REPO_BRANCH NAME; do
 
   HASUPDATE=N
 
-  if [ $PULLREQ == Y ]; then
+  if [ ${PULLREQ} == Y ]; then
     LAST="$(grep "^${OWNER_REPO_BRANCH}" ${GHNOTIFY_PTEMP} | tail -1 | awk '{ print $2 }')"
 
     DATA="$(getpulldetails "${OWNER_REPO_BRANCH}" "${LAST}")" || die 1 "Failed to obtain pull request list for repository [${OWNER_REPO_BRANCH}]"
@@ -493,11 +493,12 @@ while read -r OWNER_REPO_BRANCH NAME; do
 
       ITEM="${ITEM//@@ITEM.ROWS@@/${ROWS}}"
       [ -n "${BODY}" ] && BODY="${BODY}${NEWLINE}${ITEM}" || BODY="${ITEM}"
+
       HASUPDATE=Y
     fi
   fi
 
-  if [ $COMMITS == Y ]; then
+  if [ ${COMMITS} == Y ]; then
     CRNT="$(getlatestsha ${OWNER_REPO_BRANCH})" || die 1 "Failed to obtain current SHA for repository [${OWNER_REPO_BRANCH}]"
     [ -z "${CRNT}" ] && echo " UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${SAFE_NAME}" && continue
 
@@ -540,16 +541,17 @@ while read -r OWNER_REPO_BRANCH NAME; do
 
       ITEM="${ITEM//@@ITEM.ROWS@@/${ROWS}}"
       [ -n "${BODY}" ] && BODY="${BODY}${NEWLINE}${ITEM}" || BODY="${ITEM}"
+
       HASUPDATE=Y
     fi
   fi
   echo
 
-  [ $HASUPDATE == Y ] && UPDATED_ITEMS="${UPDATED_ITEMS}${FIELDSEP}${SAFE_NAME}"
+  [ ${HASUPDATE} == Y ] && UPDATED_ITEMS="${UPDATED_ITEMS}${FIELDSEP}${SAFE_NAME}"
 
 done <<< "$(grep -v "^#" ${GHNOTIFY_CONF})"
 
-if [ -n "${BODY}" ]; then
+if [ ${HASUPDATE} == Y ]; then
   TMPFILE=$(mktemp)
   rm -fr ${TMPFILE}
 
@@ -582,12 +584,11 @@ if [ -n "${BODY}" ]; then
   rm -f ${TMPFILE}
 fi
 
-if [ ${DEBUG} == N -a $HASUPDATE == Y ]; then
-  [ $COMMITS == Y ] && cp ${GHNOTIFY_CTEMP} ${GHNOTIFY_CDATA}
-  [ $PULLREQ == Y ] && cp ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
+if [ ${DEBUG} == N -a ${HASUPDATE} == Y ]; then
+  [ ${COMMITS} == Y ] && cp ${GHNOTIFY_CTEMP} ${GHNOTIFY_CDATA}
+  [ ${PULLREQ} == Y ] && cp ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
 fi
 
-rm -f ${GHNOTIFY_CTEMP}
-rm -f ${GHNOTIFY_PTEMP}
+rm -f ${GHNOTIFY_CTEMP} ${GHNOTIFY_PTEMP}
 
 exit 0
