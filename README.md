@@ -1,7 +1,7 @@
 ghnotify
 ========
 
-Sends an automatic summary email of all new commits for Github repository branches that you wish to monitor. This script is especially useful when monitoring infrequently updated repositories, saving you the time of manually checking for updates.
+Sends an automatic summary email of all new commits and/or pull requests for Github repository branches that you wish to monitor. This script is especially useful when monitoring infrequently updated repositories, saving you the time of manually checking for updates.
 
 Configure the repositories to be monitored in `~/ghnotify.conf` (owner, repository and branch, plus a "display" name that will appear in the email) :
 
@@ -35,17 +35,28 @@ EMAILTO="your.email@address.com"
 
 The `~/.git.conf` file is not required if you don't require authentication and your email address can be determined automatically.
 
-Whenever the script is run succesfully, it will record the latest SHA for each monitored repository in `~/ghnotify.dat`.
+Whenever the script is run succesfully, it will record the latest commit SHA for each monitored repository in `~/ghnotify.commits`, and the latest pull request number in `~/ghnotify.pulls`.
 
 The script has been tested with the msmtp MTA. Other MTAs may work (eg. sendmail, ssmtp) but are untested - patches welcome.
+
+##Arguments
+
+When run with no arguments, both commits and pulls will be processed, and an email will be sent to the configured email address.
+
+`debug` - see Debugging section below
+`noemail` - don't send the email (create email.html)
+`commits` - proceess only commits
+`pulls` - process only pull requests
+
+Specifying `commits` or `pulls` might be useful if you want to be notified of commits often (eg. scheduling the script to run every 30 minutes) but only want to be notified of pull rquests once or twice a day, in which case create two cron entries, one for commits and one for pulls. Otherwise commit and pull request notifications will be sent in the same email.
 
 ##Debugging
 
 Interactively run the script with the `noemail` parameter to avoid sending an email, and instead a file called `email.html` will be created which can be loaded in your web browser. The `ghnotify.dat` file will not be updated unless an email is sent successfully.
 
-Use the `debug` option to output additional information. Data for each repository/branch that has at least one commit will be dumped into a file prefixed with `dbg_` for subsequent analysis. `debug` implies `noemail`.
+Use the `debug` option to output additional information. Data for each repository/branch that has at least one commit or pull request will be dumped into a file prefixed with `dbg_commits_` or `dbg_pulls_` for subsequent analysis. `debug` implies `noemail`.
 
-When run without any parameters, an email will be sent only if there has been at least one new commit.
+When run without any parameters, an email will be sent only if there has been at least one new commit or pull request.
 
 ##Dependencies
 

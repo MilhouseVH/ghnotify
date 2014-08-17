@@ -17,7 +17,8 @@
 #
 #   raspberrypi/firmware/master     Raspberry Pi Firmware
 #
-# Writes the latest SHA of each monitored repository to ./ghnotify.dat.
+# Writes the latest SHA of each monitored repository to ./ghnotify.commits.
+# Writes the latest PR number of each monitored repository to ./ghnotify.pulls.
 #
 # Uses HTML template fragment files ./ghnotify.template.main and
 # ./ghnotify.template.sub to generate the HTML message, which is then
@@ -40,7 +41,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.1.1"
+VERSION="v0.1.2"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -49,52 +50,7 @@ BIN=$(readlink -f $(dirname $0))
 CHECK_INTERVAL_DAYS=14
 CHECK_FILE=${BIN}/patches.dat
 
-warn() {
-  local fmt="$1"
-  shift
-  printf "ghnotify.sh: $fmt\n" "$@" >&2
-}
-
-die() {
-  local st="$?"
-  if [[ "$1" != *[^0-9]* ]]; then
-    st="$1"
-    shift
-  fi
-  warn "$@ - terminating"
-  exit "$st"
-}
-
-getcomponent()
-{
-  echo "$(echo "$2" | awk -F"/" -vF=$1 '{print $F}')"
-}
-
-getlatestsha()
-{
-  URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/commits?per_page=1&sha=$(getcomponent 3 "$1")"
-  RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
-
-  echo "${RESPONSE}" | python -c '
-import sys, json
-data=[]
-for line in sys.stdin: data.append(line)
-jdata = json.loads("".join(data))
-for item in jdata:
-  if "sha" in item:
-    print("%s" % item["sha"])
-  break
-'
-  return 0
-}
-
-getcommitdetails()
-{
-  URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/compare/$2...$3"
-  RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
-  [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >${BIN}/dbg_$(echo "$1"|sed "s#/#_#g")
-
-  echo "${RESPONSE}" | python -c '
+PY_COMMIT_PR='
 import os, sys, json, datetime, urllib2, codecs, re
 
 DEBUGGING=os.environ.get("DEBUG")
@@ -169,7 +125,14 @@ def htmlsafe(input):
 data=[]
 for line in sys.stdin: data.append(line)
 jdata = json.loads("".join(data))
-if "commits" in jdata:
+
+if "message" in jdata:
+  print("ERROR")
+  sys.exit(0)
+
+dtype = sys.argv[1]
+
+if dtype == "commits" and "commits" in jdata:
   debug("\n%d commits loaded for %s" % (len(jdata["commits"]), jdata["url"]))
   try:
     PULL_URL = re.sub("compare/[a-z0-9]*...[a-z0-9]*$", "pull/", jdata["html_url"])
@@ -203,17 +166,109 @@ if "commits" in jdata:
       debug("  Message : %s" % message)
       debug("  Avatar  : %s" % avatar_url)
       debug("  Who/When: %s" % commitdata)
-
   except:
     raise
     sys.exit(1)
+
+elif dtype == "pulls":
+  debug("\n%d pull requests loaded" % len(jdata))
+  try:
+    avatars = {}
+    for c in jdata:
+      if c["user"]: setavatar(avatars, c["user"])
+
+    lastpr = 0
+    if len(sys.argv) == 3:
+      tmp = sys.argv[2]
+      lastpr = int(tmp) if tmp else 0
+
+    if len(jdata) != 0:
+      print(jdata[0]["number"])
+
+    for pr in [x for x in jdata if x["number"] > lastpr]:
+      avatar_url = getavatar(avatars, pr["user"])
+      author = pr["user"]["login"]
+      pulldata = "%s authored %s" % (author, whendelta(pr["created_at"]))
+      message = "<a href=\"%s\">#%s</a> %s" % (pr["html_url"], pr["number"], htmlsafe(pr["title"]))
+      
+      print("%s %s %s" % (avatar_url, htmlsafe(pulldata.replace(" ", "\001")), message))
+
+      debug("  Message : %s" % message)
+      debug("  Avatar  : %s" % avatar_url)
+      debug("  Who/When: %s" % pulldata)
+  except:
+    raise
 '
+
+warn() {
+  local fmt="$1"
+  shift
+  printf "ghnotify.sh: $fmt\n" "$@" >&2
+}
+
+die() {
+  local st="$?"
+  if [[ "$1" != *[^0-9]* ]]; then
+    st="$1"
+    shift
+  fi
+  warn "$@ - terminating"
+  exit "$st"
+}
+
+getcomponent()
+{
+  echo "$(echo "$2" | awk -F"/" -vF=$1 '{print $F}')"
+}
+
+getlatestsha()
+{
+  URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/commits?per_page=1&sha=$(getcomponent 3 "$1")"
+  RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
+
+  echo "${RESPONSE}" | python -c '
+import sys, json
+data=[]
+for line in sys.stdin: data.append(line)
+jdata = json.loads("".join(data))
+for item in jdata:
+  if "sha" in item:
+    print("%s" % item["sha"])
+  break
+'
+  return 0
+}
+
+getcommitdetails()
+{
+  URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/compare/$2...$3"
+  RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
+  [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >${BIN}/dbg_commits_$(echo "$1"|sed "s#/#_#g")
+
+  echo "${RESPONSE}" | python -c "${PY_COMMIT_PR}" commits
+
+  return $?
+}
+
+getpulldetails()
+{
+  URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/pulls"
+  RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
+  [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >${BIN}/dbg_pulls_$(echo "$1"|sed "s#/#_#g")
+
+  echo "${RESPONSE}" | python -c "${PY_COMMIT_PR}" pulls "$2"
+
   return $?
 }
 
 getcommitsurl()
 {
   echo "https://github.com/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/commits/$(getcomponent 3 "$1")"
+}
+
+getpullsurl()
+{
+  echo "https://github.com/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/pulls"
 }
 
 htmlsafe()
@@ -229,7 +284,7 @@ HTML_MAIN="$(cat <<EOF
 <html lang="en-US" dir="LTR">
 <head>
   <meta charset="UTF-8" />
-  <title>New GitHub Commits</title>
+  <title>GitHub Updates</title>
 </head>
 <body dir="LTR" text="#141414" bgcolor="#f0f0f0" link="#176093" alink="#176093" vlink="#176093" style="padding: 10px">
   <table cellpadding="0" cellspacing="0" border="0" dir="LTR" style="
@@ -247,7 +302,7 @@ HTML_MAIN="$(cat <<EOF
         font-family: 'Trebuchet MS', Helvetica, Arial, sans-serif;
         font-size: 11px;
         line-height: 1.231;">
-        <div style="color: #176093; text-decoration:none">New GitHub Commits: @@REPO.SUMMARY@@</div>
+        <div style="color: #176093; text-decoration:none">GitHub Updates: @@REPO.SUMMARY@@</div>
       </td>
     </tr>
   @@BODY.DETAIL@@
@@ -285,7 +340,7 @@ HTML_SUB="$(cat <<EOF
         font-family: 'Trebuchet MS', Helvetica, Arial, sans-serif;
         font-size: 13px;
         line-height: 1.231;">
-        <h2 style="font-size: 15pt; font-weight: normal; margin: 10px 10px 0 10px"><a href="@@ITEM.URL@@" style="color: #176093; text-decoration: none">@@ITEM.SUBJECT@@</a></h2>
+        <h2 style="font-size: 15pt; font-weight: normal; margin: 10px 10px 0 10px">@@ITEM.TYPE@@: <a href="@@ITEM.URL@@" style="color: #176093; text-decoration: none">@@ITEM.SUBJECT@@</a></h2>
         <hr style="height: 1px; margin: 10px 0; border: 0; color: #d7edfc; background-color: #d7edfc" />
         <table cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 10px 0 10px">
           <tr valign="top">
@@ -307,15 +362,30 @@ NEWLINE=$'\012'
 
 GHNOTIFY_CONF=ghnotify.conf
 GHNOTIFY_DATA=ghnotify.dat
-GHNOTIFY_TEMP=/tmp/ghnotify.dat.tmp
+GHNOTIFY_CDATA=ghnotify.commits
+GHNOTIFY_PDATA=ghnotify.pulls
 
+GHNOTIFY_CTEMP=/tmp/${GHNOTIFY_CDATA}.tmp
+GHNOTIFY_PTEMP=/tmp/${GHNOTIFY_PDATA}.tmp
+
+DEBUG=N
 NOEMAIL=N
+COMMITS=
+PULLREQ=
+
 for arg in $@; do
   case "${arg}" in
     debug)   NOEMAIL=Y; export DEBUG=Y;;
     noemail) NOEMAIL=Y;;
+    commits) COMMITS=Y;;
+    pulls)   PULLREQ=Y;;
   esac
 done
+
+[ "${COMMITS}" == "Y" -a "${PULLREQ}" == "" ] && PULLREQ=N
+[ "${PULLREQ}" == "Y" -a "${COMMITS}" == "" ] && COMMITS=N
+[ $COMMITS ] || COMMITS=Y
+[ $PULLREQ ] || PULLREQ=Y
 
 # Try and find a usable mail transfer agent (MTA).
 #
@@ -334,10 +404,15 @@ done
 EMAILTO="$(grep MAILTO /etc/crontab 2>/dev/null | awk -F= '{print $2}')"
 
 # Fixup config and data paths
-[ -f ~/${GHNOTIFY_CONF} ] && GHNOTIFY_CONF=~/${GHNOTIFY_CONF} || GHNOTIFY_CONF="${BIN}/${GHNOTIFY_CONF}"
-[ -f ~/${GHNOTIFY_DATA} ] && GHNOTIFY_DATA=~/${GHNOTIFY_DATA} || GHNOTIFY_DATA="${BIN}/${GHNOTIFY_DATA}"
 
-# Optionally load GIT authentication and override settings, eg. EMAILTO, GHNOTIFY_DATA etc.
+[ -f ~/${GHNOTIFY_DATA} ]       && mv ~/${GHNOTIFY_DATA} ~/${GHNOTIFY_CDATA}
+[ -f ${BIN}/${GHNOTIFY_DATA} ]  && mv ${BIN}/${GHNOTIFY_DATA} ${BIN}/${GHNOTIFY_CDATA}
+
+[ -f ${BIN}/${GHNOTIFY_CONF} ]  && GHNOTIFY_CONF="${BIN}/${GHNOTIFY_CONF}"   || GHNOTIFY_CONF=~/${GHNOTIFY_CONF}
+[ -f ${BIN}/${GHNOTIFY_CDATA} ] && GHNOTIFY_CDATA="${BIN}/${GHNOTIFY_CDATA}" || GHNOTIFY_CDATA=~/${GHNOTIFY_CDATA}
+[ -f ${BIN}/${GHNOTIFY_PDATA} ] && GHNOTIFY_PDATA="${BIN}/${GHNOTIFY_PDATA}" || GHNOTIFY_PDATA=~/${GHNOTIFY_PDATA}
+
+# Optionally load GIT authentication and override settings, eg. EMAILTO, GHNOTIFY_?DATA etc.
 [ -f ~/.git.conf ] && source ~/.git.conf
 
 [ -n "${GIT_USERNAME}" -a -n "${GIT_PASSWORD}" ] && AUTHENTICATION="-u ${GIT_USERNAME}:${GIT_PASSWORD}"
@@ -351,55 +426,127 @@ if [ -f ${CHECK_FILE} -a ${CHECK_INTERVAL_DAYS} -ne 0 ]; then
   [ ${DELTA} -ge $((${CHECK_INTERVAL_DAYS} * 24 * 60 * 60)) ] && die 0 "Exceeded check interval ${CHECK_INTERVAL_DAYS} days"
 fi
 
-[ ! -f ${GHNOTIFY_DATA} ] && touch ${GHNOTIFY_DATA}
-cp ${GHNOTIFY_DATA} ${GHNOTIFY_TEMP}
+if [ $COMMITS = Y ]; then
+  [ ! -f ${GHNOTIFY_CDATA} ] && touch ${GHNOTIFY_CDATA}
+  cp ${GHNOTIFY_CDATA} ${GHNOTIFY_CTEMP}
+fi
+
+if [ $PULLREQ = Y ]; then
+  [ ! -f ${GHNOTIFY_PDATA} ] && touch ${GHNOTIFY_PDATA}
+  cp ${GHNOTIFY_PDATA} ${GHNOTIFY_PTEMP}
+fi
 
 BODY=
 PROCESSED=0
 UNAVAILABLE=0
 UNAVAILABLE_ITEMS=
 UPDATED_ITEMS=
+
 while read -r OWNER_REPO_BRANCH NAME; do
-  printf "Processing: %-35s" "${NAME}... "
+  printf "Processing: %-34s" "${NAME}..."
 
   PROCESSED=$((PROCESSED+1))
   SAFE_NAME="$(htmlsafe "${NAME}")"
 
-  CRNT="$(getlatestsha ${OWNER_REPO_BRANCH})" || die 1 "Failed to obtain current SHA for repository [${OWNER_REPO_BRANCH}]"
-  [ -z "${CRNT}" ] && echo "UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${SAFE_NAME}" && continue
+  HASUPDATE=N
 
-  LAST="$(grep "^${OWNER_REPO_BRANCH}" ${GHNOTIFY_TEMP} | tail -1 | awk '{ print $2 }')"
+  if [ $PULLREQ == Y ]; then
+    LAST="$(grep "^${OWNER_REPO_BRANCH}" ${GHNOTIFY_PTEMP} | tail -1 | awk '{ print $2 }')"
 
-  [ -z "${LAST}" ] && echo "${OWNER_REPO_BRANCH} ${CRNT}" >> ${GHNOTIFY_TEMP}
-  [ "${CRNT}" == "${LAST}" -o -z "${LAST}" ] && echo "No new commits" && continue
+    DATA="$(getpulldetails "${OWNER_REPO_BRANCH}" "${LAST}")" || die 1 "Failed to obtain pull request list for repository [${OWNER_REPO_BRANCH}]"
+    [ "${DATA}" == "ERROR" ] && echo " UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${SAFE_NAME}" && continue
 
-  COMMITS="$(getcommitdetails "${OWNER_REPO_BRANCH}" "${LAST}" "${CRNT}")" || die 1 "Failed to obtain commit comparison for repository [${OWNER_REPO_BRANCH}]"
-  sed -i "s${FIELDSEP}^${OWNER_REPO_BRANCH} ${LAST}${FIELDSEP}${OWNER_REPO_BRANCH} ${CRNT}${FIELDSEP}" ${GHNOTIFY_TEMP}
-  [ -z "${COMMITS}" ] && echo "No new commits" && continue || echo "$(echo "${COMMITS}" | wc -l) new commits"
+    CRNT="$(echo "${DATA}" | head -1)"
+    DATA="$(echo "${DATA}" | tail -n +2)"
 
-  URL="$(getcommitsurl "${OWNER_REPO_BRANCH}")"
+    [ -z "${DATA}" -o "${CRNT}" == "${LAST}" -o -z "${LAST}" ] && NODATA=Y || NODATA=N
 
-  ITEM="${HTML_SUB}"
-  ITEM="${ITEM//@@ITEM.URL@@/${URL}}"
-  ITEM="${ITEM//@@ITEM.SUBJECT@@/${NAME}}"
-  ROWS=
-  EVEN=Y
-  while read -r avatar_url committer title; do
-    [ $EVEN == Y ] && COLOR="#f0f0f0" || COLOR="#fcfcff"
-    avatar="<img src=\"${avatar_url}\" style=\"height: 20px; width: 20px\" />"
-    ROW="<tr style=\"background-color: ${COLOR}; vertical-align: top\">"
-    ROW="${ROW}<td style=\"padding-left: 10px; padding-right:10px; padding-top:2px\">${avatar}</td>"
-    ROW="${ROW}<td style=\"padding-right: 10px; width: 100%\">${title}<br>"
-    ROW="${ROW}<span style=\"font-size: 6pt; color: grey\">${committer//${FIELDSEP}/ }</span></td>"
-    ROW="${ROW}</tr>"
-    [ -n "${ROWS}" ] && ROWS="${ROWS}${NEWLINE}${ROW}" || ROWS="${ROW}"
-    [ $EVEN == Y ] && EVEN=N || EVEN=Y
-  done <<< "${COMMITS}"
+    [ -z "${LAST}" -a -n "${CRNT}" ] && echo "${OWNER_REPO_BRANCH} ${CRNT}" >> ${GHNOTIFY_PTEMP}
+    [ -z "${LAST}" -a -n "${CRNT}" ] && LAST="${CRNT}"
 
-  ITEM="${ITEM//@@ITEM.ROWS@@/${ROWS}}"
-  [ -n "${BODY}" ] && BODY="${BODY}${NEWLINE}${ITEM}" || BODY="${ITEM}"
+    sed -i "s${FIELDSEP}^${OWNER_REPO_BRANCH} ${LAST}\$${FIELDSEP}${OWNER_REPO_BRANCH} ${CRNT}${FIELDSEP}" ${GHNOTIFY_PTEMP}
 
-  UPDATED_ITEMS="${UPDATED_ITEMS}${FIELDSEP}${SAFE_NAME}"
+    if [ $NODATA == Y ]; then
+      echo -n " No new pull requests." 
+    else
+      echo -n " $(echo "${DATA}" | wc -l) new pull requests."
+
+      URL="$(getpullsurl "${OWNER_REPO_BRANCH}")"
+
+      ITEM="${HTML_SUB}"
+      ITEM="${ITEM//@@ITEM.TYPE@@/Pulls}"
+      ITEM="${ITEM//@@ITEM.URL@@/${URL}}"
+      ITEM="${ITEM//@@ITEM.SUBJECT@@/${NAME}}"
+      ROWS=
+      EVEN=Y
+      while read -r avatar_url committer title; do
+        [ $EVEN == Y ] && COLOR="#f0f0f0" || COLOR="#fcfcff"
+        avatar="<img src=\"${avatar_url}\" style=\"height: 20px; width: 20px\" />"
+        ROW="<tr style=\"background-color: ${COLOR}; vertical-align: top\">"
+        ROW="${ROW}<td style=\"padding-left: 10px; padding-right:10px; padding-top:2px\">${avatar}</td>"
+        ROW="${ROW}<td style=\"padding-right: 10px; width: 100%\">${title}<br>"
+        ROW="${ROW}<span style=\"font-size: 6pt; color: grey\">${committer//${FIELDSEP}/ }</span></td>"
+        ROW="${ROW}</tr>"
+        [ -n "${ROWS}" ] && ROWS="${ROWS}${NEWLINE}${ROW}" || ROWS="${ROW}"
+        [ $EVEN == Y ] && EVEN=N || EVEN=Y
+      done <<< "${DATA}"
+
+      ITEM="${ITEM//@@ITEM.ROWS@@/${ROWS}}"
+      [ -n "${BODY}" ] && BODY="${BODY}${NEWLINE}${ITEM}" || BODY="${ITEM}"
+      HASUPDATE=Y
+    fi
+  fi
+
+  if [ $COMMITS == Y ]; then
+    CRNT="$(getlatestsha ${OWNER_REPO_BRANCH})" || die 1 "Failed to obtain current SHA for repository [${OWNER_REPO_BRANCH}]"
+    [ -z "${CRNT}" ] && echo " UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${SAFE_NAME}" && continue
+
+    LAST="$(grep "^${OWNER_REPO_BRANCH}" ${GHNOTIFY_CTEMP} | tail -1 | awk '{ print $2 }')"
+
+    [ "${CRNT}" == "${LAST}" -o -z "${LAST}" ] && NODATA=Y|| NODATA=N
+
+    [ -z "${LAST}" ] && echo "${OWNER_REPO_BRANCH} ${CRNT}" >> ${GHNOTIFY_CTEMP}
+
+    if [ $NODATA == N ]; then
+      DATA="$(getcommitdetails "${OWNER_REPO_BRANCH}" "${LAST}" "${CRNT}")" || die 1 "Failed to obtain commit comparison for repository [${OWNER_REPO_BRANCH}]"
+      sed -i "s${FIELDSEP}^${OWNER_REPO_BRANCH} ${LAST}\$${FIELDSEP}${OWNER_REPO_BRANCH} ${CRNT}${FIELDSEP}" ${GHNOTIFY_CTEMP}
+      [ -z "${DATA}" -o "${DATA}" == "ERROR" ] && NODATA=Y
+    fi
+
+    if [ $NODATA == Y ]; then
+      echo -n " No new commits."
+    else
+      echo -n " $(echo "${DATA}" | wc -l) new commits."
+
+      URL="$(getcommitsurl "${OWNER_REPO_BRANCH}")"
+
+      ITEM="${HTML_SUB}"
+      ITEM="${ITEM//@@ITEM.TYPE@@/Commits}"
+      ITEM="${ITEM//@@ITEM.URL@@/${URL}}"
+      ITEM="${ITEM//@@ITEM.SUBJECT@@/${NAME}}"
+      ROWS=
+      EVEN=Y
+      while read -r avatar_url committer title; do
+        [ $EVEN == Y ] && COLOR="#f0f0f0" || COLOR="#fcfcff"
+        avatar="<img src=\"${avatar_url}\" style=\"height: 20px; width: 20px\" />"
+        ROW="<tr style=\"background-color: ${COLOR}; vertical-align: top\">"
+        ROW="${ROW}<td style=\"padding-left: 10px; padding-right:10px; padding-top:2px\">${avatar}</td>"
+        ROW="${ROW}<td style=\"padding-right: 10px; width: 100%\">${title}<br>"
+        ROW="${ROW}<span style=\"font-size: 6pt; color: grey\">${committer//${FIELDSEP}/ }</span></td>"
+        ROW="${ROW}</tr>"
+        [ -n "${ROWS}" ] && ROWS="${ROWS}${NEWLINE}${ROW}" || ROWS="${ROW}"
+        [ $EVEN == Y ] && EVEN=N || EVEN=Y
+      done <<< "${DATA}"
+
+      ITEM="${ITEM//@@ITEM.ROWS@@/${ROWS}}"
+      [ -n "${BODY}" ] && BODY="${BODY}${NEWLINE}${ITEM}" || BODY="${ITEM}"
+      HASUPDATE=Y
+    fi
+  fi
+  echo
+
+  [ $HASUPDATE == Y ] && UPDATED_ITEMS="${UPDATED_ITEMS}${FIELDSEP}${SAFE_NAME}"
+
 done <<< "$(grep -v "^#" ${GHNOTIFY_CONF})"
 
 if [ -n "${BODY}" ]; then
@@ -408,7 +555,7 @@ if [ -n "${BODY}" ]; then
 
   if [ ${NOEMAIL} == N ]; then
     echo "To: ${EMAILTO}" >> ${TMPFILE}
-    echo "Subject: New GitHub Commits" >> ${TMPFILE}
+    echo "Subject: GitHub Updates" >> ${TMPFILE}
     echo "Content-Type: text/html; charset=utf-8" >> ${TMPFILE}
     echo "Content-Transfer-Encoding: quoted-printable" >>${TMPFILE}
   fi
@@ -426,7 +573,7 @@ if [ -n "${BODY}" ]; then
 
   if [ ${NOEMAIL} == N ]; then
     echo "${PAGE}" | qprint -be >> ${TMPFILE}
-    cat ${TMPFILE} | ${BIN_MTA} && mv ${GHNOTIFY_TEMP} ${GHNOTIFY_DATA}
+    cat ${TMPFILE} | ${BIN_MTA} || die 1 "Failed to send email"
   else
     echo "${PAGE}" >> ${TMPFILE}
     mv ${TMPFILE} ${BIN}/email.html
@@ -435,6 +582,12 @@ if [ -n "${BODY}" ]; then
   rm -f ${TMPFILE}
 fi
 
-rm -f ${GHNOTIFY_TEMP}
+if [ ${DEBUG} == N ]; then
+  [ $COMMITS == Y ] && mv ${GHNOTIFY_CTEMP} ${GHNOTIFY_CDATA}
+  [ $PULLREQ == Y ] && mv ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
+else
+  [ $COMMITS == Y ] && rm -f ${GHNOTIFY_CTEMP}
+  [ $PULLREQ == Y ] && rm -f ${GHNOTIFY_PTEMP}
+fi
 
 exit 0

@@ -1,5 +1,8 @@
 #Changelog
 
+##Version 0.1.2 (17/08/2014)
+* Add: Support pull requests.
+
 ##Version 0.1.1 (13/08/2014)
 * Chg: Use full sha rather than first 7 chars when performing comparison, to avoid collisions.
 
