@@ -20,13 +20,13 @@ sahlberg/libnfs/master          libnfs (master)
 
 Including the ghnotify repository is a handy way to be notified of any updates!
 
-Configure your github username and password in `~/.git.conf`:
+Github authentication is necessary to bypass [GitHub rate limiting](https://developer.github.com/v3/rate_limit/). If you don't plan on running this script very often, eg. one or twice an hour, then it may not be necessary to include authentication.
+
+If you exceeded the hourly data access limit, configure your github username and password in `~/.git.conf` to enable much greater limits:
 ```
 GIT_USERNAME="your_username"
 GIT_PASSWORD="your_password"
 ```
-
-Github authentication is necessary to bypass [GitHub rate limiting](https://developer.github.com/v3/rate_limit/). If you don't plan on running this script very often, eg. one or twice an hour, then it may not be necessary to include authentication.
 
 A suitable email address will be determined from the MAILTO= property in /etc/crontab (if available), otherwise configure your "to" email address in `~/.git.conf`:
 ```
@@ -43,10 +43,10 @@ The script has been tested with the msmtp MTA. Other MTAs may work (eg. sendmail
 
 When run with no arguments, both commits and pulls will be processed, and an email will be sent to the configured email address.
 
-`debug` - see Debugging section below
-`noemail` - don't send the email (create email.html)
-`commits` - proceess only commits
-`pulls` - process only pull requests
+`debug` - see Debugging section below  
+`noemail` - don't send the email (create email.html)  
+`commits` - proceess only commits  
+`pulls` - process only pull requests  
 
 Specifying `commits` or `pulls` might be useful if you want to be notified of commits often (eg. scheduling the script to run every 30 minutes) but only want to be notified of pull rquests once or twice a day, in which case create two cron entries, one for commits and one for pulls. Otherwise commit and pull request notifications will be sent in the same email.
 

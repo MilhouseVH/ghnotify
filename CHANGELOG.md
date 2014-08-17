@@ -1,5 +1,8 @@
 #Changelog
 
+##Version 0.1.3 (17/08/2014)
+* Fix: Bug
+
 ##Version 0.1.2 (17/08/2014)
 * Add: Support pull requests.
 

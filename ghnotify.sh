@@ -41,7 +41,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.1.2"
+VERSION="v0.1.3"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -551,7 +551,7 @@ while read -r OWNER_REPO_BRANCH NAME; do
 
 done <<< "$(grep -v "^#" ${GHNOTIFY_CONF})"
 
-if [ ${HASUPDATE} == Y ]; then
+if [ -n "${UPDATED_ITEMS}" ]; then
   TMPFILE=$(mktemp)
   rm -fr ${TMPFILE}
 
@@ -584,7 +584,7 @@ if [ ${HASUPDATE} == Y ]; then
   rm -f ${TMPFILE}
 fi
 
-if [ ${DEBUG} == N -a ${HASUPDATE} == Y ]; then
+if [ ${DEBUG} == N -a -n "${UPDATED_ITEMS}" ]; then
   [ ${COMMITS} == Y ] && cp ${GHNOTIFY_CTEMP} ${GHNOTIFY_CDATA}
   [ ${PULLREQ} == Y ] && cp ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
 fi
