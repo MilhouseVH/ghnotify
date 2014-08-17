@@ -582,12 +582,12 @@ if [ -n "${BODY}" ]; then
   rm -f ${TMPFILE}
 fi
 
-if [ ${DEBUG} == N ]; then
-  [ $COMMITS == Y ] && mv ${GHNOTIFY_CTEMP} ${GHNOTIFY_CDATA}
-  [ $PULLREQ == Y ] && mv ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
-else
-  [ $COMMITS == Y ] && rm -f ${GHNOTIFY_CTEMP}
-  [ $PULLREQ == Y ] && rm -f ${GHNOTIFY_PTEMP}
+if [ ${DEBUG} == N -a $HASUPDATE == Y ]; then
+  [ $COMMITS == Y ] && cp ${GHNOTIFY_CTEMP} ${GHNOTIFY_CDATA}
+  [ $PULLREQ == Y ] && cp ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
 fi
+
+rm -f ${GHNOTIFY_CTEMP}
+rm -f ${GHNOTIFY_PTEMP}
 
 exit 0
