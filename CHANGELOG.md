@@ -1,5 +1,8 @@
 #Changelog
 
+##Version 0.1.4 (07/09/2014)
+* Fix: Failure to display email in Sailfish email viewer
+
 ##Version 0.1.3 (17/08/2014)
 * Fix: Bug
 

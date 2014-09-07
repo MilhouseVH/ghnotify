@@ -41,7 +41,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.1.3"
+VERSION="v0.1.4"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -560,6 +560,7 @@ if [ -n "${UPDATED_ITEMS}" ]; then
     echo "Subject: GitHub Updates" >> ${TMPFILE}
     echo "Content-Type: text/html; charset=utf-8" >> ${TMPFILE}
     echo "Content-Transfer-Encoding: quoted-printable" >>${TMPFILE}
+    echo "" >>${TMPFILE}
   fi
 
   STATUS="Processed: ${PROCESSED}, Unavailable: ${UNAVAILABLE}"
