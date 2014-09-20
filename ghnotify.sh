@@ -455,7 +455,7 @@ while read -r OWNER_REPO_BRANCH NAME; do
   HASUPDATE=N
 
   if [ ${PULLREQ} == Y ]; then
-    LAST="$(grep "^${OWNER_REPO_BRANCH}" ${GHNOTIFY_PTEMP} | tail -1 | awk '{ print $2 }')"
+    LAST="$(grep "^${OWNER_REPO_BRANCH} " ${GHNOTIFY_PTEMP} | tail -1 | awk '{ print $2 }')"
     [ -z "${LAST}" ] && NEWITEM=Y
 
     DATA="$(getpulldetails "${OWNER_REPO_BRANCH}" "${LAST:-0}")" || die 1 "Failed to obtain pull request list for repository [${OWNER_REPO_BRANCH}]"
@@ -506,7 +506,7 @@ while read -r OWNER_REPO_BRANCH NAME; do
   fi
 
   if [ ${COMMITS} == Y ]; then
-    LAST="$(grep "^${OWNER_REPO_BRANCH}" ${GHNOTIFY_CTEMP} | tail -1 | awk '{ print $2 }')"
+    LAST="$(grep "^${OWNER_REPO_BRANCH} " ${GHNOTIFY_CTEMP} | tail -1 | awk '{ print $2 }')"
     [ -z "${LAST}" ] && NEWITEM=Y
 
     CRNT="$(getlatestsha ${OWNER_REPO_BRANCH})" || die 1 "Failed to obtain current SHA for repository [${OWNER_REPO_BRANCH}]"
