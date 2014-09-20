@@ -1,5 +1,9 @@
 #Changelog
 
+##Version 0.1.5 (20/09/2014)
+* Fix: Ensure commit and pull details for newly added repositories are added to control files
+* Fix: Store 0 as last pull request when no pull requests are available
+
 ##Version 0.1.4 (07/09/2014)
 * Fix: Failure to display email in Sailfish email viewer
 

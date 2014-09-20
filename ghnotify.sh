@@ -41,7 +41,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.1.4"
+VERSION="v0.1.5"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -365,8 +365,11 @@ GHNOTIFY_DATA=ghnotify.dat
 GHNOTIFY_CDATA=ghnotify.commits
 GHNOTIFY_PDATA=ghnotify.pulls
 
-GHNOTIFY_CTEMP=/tmp/${GHNOTIFY_CDATA}.tmp
-GHNOTIFY_PTEMP=/tmp/${GHNOTIFY_PDATA}.tmp
+GHNOTIFY_CTEMP=$(mktemp)
+GHNOTIFY_PTEMP=$(mktemp)
+TMPFILE=$(mktemp)
+
+trap "rm -f ${GHNOTIFY_CTEMP} ${GHNOTIFY_PTEMP} ${TMPFILE}" EXIT
 
 DEBUG=N
 NOEMAIL=N
@@ -441,6 +444,7 @@ PROCESSED=0
 UNAVAILABLE=0
 UNAVAILABLE_ITEMS=
 UPDATED_ITEMS=
+NEWITEM=N
 
 while read -r OWNER_REPO_BRANCH NAME; do
   printf "Processing: %-34s" "${NAME}..."
@@ -452,14 +456,17 @@ while read -r OWNER_REPO_BRANCH NAME; do
 
   if [ ${PULLREQ} == Y ]; then
     LAST="$(grep "^${OWNER_REPO_BRANCH}" ${GHNOTIFY_PTEMP} | tail -1 | awk '{ print $2 }')"
+    [ -z "${LAST}" ] && NEWITEM=Y
 
-    DATA="$(getpulldetails "${OWNER_REPO_BRANCH}" "${LAST}")" || die 1 "Failed to obtain pull request list for repository [${OWNER_REPO_BRANCH}]"
+    DATA="$(getpulldetails "${OWNER_REPO_BRANCH}" "${LAST:-0}")" || die 1 "Failed to obtain pull request list for repository [${OWNER_REPO_BRANCH}]"
     [ "${DATA}" == "ERROR" ] && echo " UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${SAFE_NAME}" && continue
 
     CRNT="$(echo "${DATA}" | head -1)"
     DATA="$(echo "${DATA}" | tail -n +2)"
 
     [ -z "${DATA}" -o "${CRNT}" == "${LAST}" -o -z "${LAST}" ] && NODATA=Y || NODATA=N
+
+    [ -z "${CRNT}" ] && CRNT="0"
 
     [ -z "${LAST}" -a -n "${CRNT}" ] && echo "${OWNER_REPO_BRANCH} ${CRNT}" >> ${GHNOTIFY_PTEMP}
     [ -z "${LAST}" -a -n "${CRNT}" ] && LAST="${CRNT}"
@@ -499,18 +506,21 @@ while read -r OWNER_REPO_BRANCH NAME; do
   fi
 
   if [ ${COMMITS} == Y ]; then
+    LAST="$(grep "^${OWNER_REPO_BRANCH}" ${GHNOTIFY_CTEMP} | tail -1 | awk '{ print $2 }')"
+    [ -z "${LAST}" ] && NEWITEM=Y
+
     CRNT="$(getlatestsha ${OWNER_REPO_BRANCH})" || die 1 "Failed to obtain current SHA for repository [${OWNER_REPO_BRANCH}]"
     [ -z "${CRNT}" ] && echo " UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${SAFE_NAME}" && continue
 
-    LAST="$(grep "^${OWNER_REPO_BRANCH}" ${GHNOTIFY_CTEMP} | tail -1 | awk '{ print $2 }')"
-
     [ "${CRNT}" == "${LAST}" -o -z "${LAST}" ] && NODATA=Y|| NODATA=N
 
-    [ -z "${LAST}" ] && echo "${OWNER_REPO_BRANCH} ${CRNT}" >> ${GHNOTIFY_CTEMP}
+    [ -z "${LAST}" -a -n "${CRNT}" ] && echo "${OWNER_REPO_BRANCH} ${CRNT}" >> ${GHNOTIFY_CTEMP}
+    [ -z "${LAST}" -a -n "${CRNT}" ] && LAST="${CRNT}"
+
+    sed -i "s${FIELDSEP}^${OWNER_REPO_BRANCH} ${LAST}\$${FIELDSEP}${OWNER_REPO_BRANCH} ${CRNT}${FIELDSEP}" ${GHNOTIFY_CTEMP}
 
     if [ $NODATA == N ]; then
       DATA="$(getcommitdetails "${OWNER_REPO_BRANCH}" "${LAST}" "${CRNT}")" || die 1 "Failed to obtain commit comparison for repository [${OWNER_REPO_BRANCH}]"
-      sed -i "s${FIELDSEP}^${OWNER_REPO_BRANCH} ${LAST}\$${FIELDSEP}${OWNER_REPO_BRANCH} ${CRNT}${FIELDSEP}" ${GHNOTIFY_CTEMP}
       [ -z "${DATA}" -o "${DATA}" == "ERROR" ] && NODATA=Y
     fi
 
@@ -552,7 +562,6 @@ while read -r OWNER_REPO_BRANCH NAME; do
 done <<< "$(grep -v "^#" ${GHNOTIFY_CONF})"
 
 if [ -n "${UPDATED_ITEMS}" ]; then
-  TMPFILE=$(mktemp)
   rm -fr ${TMPFILE}
 
   if [ ${NOEMAIL} == N ]; then
@@ -581,15 +590,13 @@ if [ -n "${UPDATED_ITEMS}" ]; then
     echo "${PAGE}" >> ${TMPFILE}
     mv ${TMPFILE} ${BIN}/email.html
   fi
-
-  rm -f ${TMPFILE}
 fi
 
-if [ ${DEBUG} == N -a -n "${UPDATED_ITEMS}" ]; then
-  [ ${COMMITS} == Y ] && cp ${GHNOTIFY_CTEMP} ${GHNOTIFY_CDATA}
-  [ ${PULLREQ} == Y ] && cp ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
+if [ ${DEBUG} == N ]; then
+  if [ -n "${UPDATED_ITEMS}" -o "${NEWITEM}" == "Y" ]; then
+    [ ${COMMITS} == Y ] && cp ${GHNOTIFY_CTEMP} ${GHNOTIFY_CDATA}
+    [ ${PULLREQ} == Y ] && cp ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
+  fi
 fi
-
-rm -f ${GHNOTIFY_CTEMP} ${GHNOTIFY_PTEMP}
 
 exit 0
