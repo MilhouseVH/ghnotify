@@ -1,5 +1,8 @@
 #Changelog
 
+##Version 0.1.6 (07/02/2015)
+* Fix: Avoid processing pull requests for the same repo multiple times when different branches are configured - just ignore subsequent branches.
+
 ##Version 0.1.5 (20/09/2014)
 * Fix: Ensure commit and pull details for newly added repositories are added to control files
 * Fix: Store 0 as last pull request when no pull requests are available

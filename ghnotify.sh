@@ -41,7 +41,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.1.5"
+VERSION="v0.1.6"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -446,15 +446,37 @@ UNAVAILABLE_ITEMS=
 UPDATED_ITEMS=
 NEWITEM=N
 
+HISTORY_OWNER_REPO=()
+
+findinlist()
+{
+  local item="${1}" key
+
+  for key in "${!HISTORY_OWNER_REPO[@]}"; do
+    [ "${HISTORY_OWNER_REPO[$key]}" == "${item}" ] && return 0
+  done
+  return 1
+}
+
+
 while read -r OWNER_REPO_BRANCH NAME; do
   printf "Processing: %-34s" "${NAME}..."
 
   PROCESSED=$((PROCESSED+1))
   SAFE_NAME="$(htmlsafe "${NAME}")"
 
+  OWNER_REPO="${OWNER_REPO_BRANCH%/*}"
+
   HASUPDATE=N
 
-  if [ ${PULLREQ} == Y ]; then
+  if findinlist "${OWNER_REPO}"; then
+    ISDUPLICATE=Y
+  else
+    ISDUPLICATE=N
+    HISTORY_OWNER_REPO+=($OWNER_REPO)
+  fi
+
+  if [ ${PULLREQ} == Y -a ${ISDUPLICATE} == N ]; then
     LAST="$(grep "^${OWNER_REPO_BRANCH} " ${GHNOTIFY_PTEMP} | tail -1 | awk '{ print $2 }')"
     [ -z "${LAST}" ] && NEWITEM=Y
 
