@@ -41,7 +41,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.1.6"
+VERSION="v0.1.7"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -224,7 +224,7 @@ getcomponent()
 getlatestsha()
 {
   URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/commits?per_page=1&sha=$(getcomponent 3 "$1")"
-  RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
+  RESPONSE="$(webrequest "${URL}")" || return 1
 
   echo "${RESPONSE}" | python -c '
 import sys, json
@@ -242,7 +242,7 @@ for item in jdata:
 getcommitdetails()
 {
   URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/compare/$2...$3"
-  RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
+  RESPONSE="$(webrequest "${URL}")" || return 1
   [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >${BIN}/dbg_commits_$(echo "$1"|sed "s#/#_#g")
 
   echo "${RESPONSE}" | python -c "${PY_COMMIT_PR}" commits
@@ -253,7 +253,7 @@ getcommitdetails()
 getpulldetails()
 {
   URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/pulls"
-  RESPONSE="$(curl -s ${AUTHENTICATION} --connect-timeout 30 ${URL})" || return 1
+  RESPONSE="$(webrequest "${URL}")" || return 1
   [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >${BIN}/dbg_pulls_$(echo "$1"|sed "s#/#_#g")
 
   echo "${RESPONSE}" | python -c "${PY_COMMIT_PR}" pulls "$2"
@@ -269,6 +269,18 @@ getcommitsurl()
 getpullsurl()
 {
   echo "https://github.com/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/pulls"
+}
+
+webrequest()
+{
+  local url="$1" response result=0 curl
+  curl="curl --location --silent --show-error ${AUTHENTICATION} --connect-timeout 60"
+  [ "${DIAGNOSTICS}" = Y ] && echo -e "\nREQUEST : ${curl} \"${url}\"" >&2
+  response="$(${curl} "${url}" 2>&1)" || result=1
+  [ "${DIAGNOSTICS}" = Y ] && echo "RESPONSE: ${response}" >&2
+  [ "${DIAGNOSTICS}" = Y ] && echo "RESULT  : ${result}" >&2
+  echo "${response}"
+  return ${result}
 }
 
 htmlsafe()
@@ -372,6 +384,7 @@ TMPFILE=$(mktemp)
 trap "rm -f ${GHNOTIFY_CTEMP} ${GHNOTIFY_PTEMP} ${TMPFILE}" EXIT
 
 DEBUG=N
+DIAGNOSTICS=N
 NOEMAIL=N
 COMMITS=
 PULLREQ=
@@ -379,6 +392,7 @@ PULLREQ=
 for arg in $@; do
   case "${arg}" in
     debug)   NOEMAIL=Y; export DEBUG=Y;;
+    diags)   DIAGNOSTICS=Y;;
     noemail) NOEMAIL=Y;;
     commits) COMMITS=Y;;
     pulls)   PULLREQ=Y;;

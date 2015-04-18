@@ -1,5 +1,11 @@
 #Changelog
 
+##Version 0.1.7 (18/04/2015)
+* Chg: Centralise web requests
+* Chg: Add --location option to curl and follow github redirects
+* Chg: Increase curl timeout to 60 seconds
+* Add: View request/response/result with `diags` option
+
 ##Version 0.1.6 (07/02/2015)
 * Fix: Avoid processing pull requests for the same repo multiple times when different branches are configured - just ignore subsequent branches.
 
