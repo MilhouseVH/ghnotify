@@ -1,9 +1,12 @@
 #Changelog
 
+##Version 0.1.8 (18/04/2015)
+* Chg: Revert connect timeout to 30 seconds, now retry 6 times instead
+
 ##Version 0.1.7 (18/04/2015)
 * Chg: Centralise web requests
 * Chg: Add --location option to curl and follow github redirects
-* Chg: Increase curl timeout to 60 seconds
+* Chg: Increase curl connect timeout to 60 seconds
 * Add: View request/response/result with `diags` option
 
 ##Version 0.1.6 (07/02/2015)
