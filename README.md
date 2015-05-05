@@ -44,8 +44,9 @@ The script has been tested with the msmtp MTA. Other MTAs may work (eg. sendmail
 When run with no arguments, both commits and pulls will be processed, and an email will be sent to the configured email address.
 
 `debug` - see Debugging section below  
-`noemail` - don't send the email (create email.html)  
-`commits` - proceess only commits  
+`diags` - view web equest/response/result details
+`noemail` - don't send the email (create email.html instead)
+`commits` - process only commits  
 `pulls` - process only pull requests  
 
 Specifying `commits` or `pulls` might be useful if you want to be notified of commits often (eg. scheduling the script to run every 30 minutes) but only want to be notified of pull rquests once or twice a day, in which case create two cron entries, one for commits and one for pulls. Otherwise commit and pull request notifications will be sent in the same email.
