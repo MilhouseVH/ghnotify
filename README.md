@@ -44,8 +44,8 @@ The script has been tested with the msmtp MTA. Other MTAs may work (eg. sendmail
 When run with no arguments, both commits and pulls will be processed, and an email will be sent to the configured email address.
 
 `debug` - see Debugging section below  
-`diags` - view web equest/response/result details
-`noemail` - don't send the email (create email.html instead)
+`diags` - view web equest/response/result details  
+`noemail` - don't send the email (create email.html instead)  
 `commits` - process only commits  
 `pulls` - process only pull requests  
 
