@@ -1,5 +1,8 @@
 #Changelog
 
+##Version 0.1.9 (15/12/2015)
+* Add: Minimal url escaping to workaround branch names such as K+++
+
 ##Version 0.1.8 (18/04/2015)
 * Chg: Revert connect timeout to 30 seconds, now retry 6 times instead
 

@@ -41,7 +41,7 @@
 #
 # (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.1.8"
+VERSION="v0.1.9"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -274,6 +274,10 @@ getpullsurl()
 webrequest()
 {
   local url="$1" response result=0 curl
+
+  # Escape +
+  url="${url//+/%2B}"
+
   curl="curl --location --silent --show-error --retry 6 ${AUTHENTICATION} --connect-timeout 30"
   [ "${DIAGNOSTICS}" == Y ] && echo -e "\nREQUEST : ${curl} \"${url}\"" >&2
   response="$(${curl} "${url}" 2>&1)" || result=1
