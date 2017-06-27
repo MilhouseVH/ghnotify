@@ -39,11 +39,14 @@
 # You can also use ~/.git.conf to override other variables, such as which email binary
 # to use when sending email (the script will attempt find a suitable MTA).
 #
-# (c) Neil MacLeod 2014 :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
+# (c) Neil MacLeod 2014-present :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.1.9"
+VERSION="v0.2.0"
 
 BIN=$(readlink -f $(dirname $0))
+
+DEFAULTMAXJOBS=$(($(nproc) * 10))
+MAXJOBS=${MAXJOBS:-${DEFAULTMAXJOBS}}
 
 # Stop sending emails if the specified number of days have elapsed since
 # the last modification to the CHECK_FILE.
@@ -67,7 +70,7 @@ else:
 
 def debug(msg):
   if DEBUGGING:
-    sys.stderr.write("%s\n" % msg)
+    sys.stderr.write("[%s] %s\n" % (ditem, msg))
 
 def whendelta(when):
   when_date = datetime.datetime.strptime(when, "%Y-%m-%dT%H:%M:%SZ")
@@ -131,9 +134,10 @@ if "message" in jdata:
   sys.exit(0)
 
 dtype = sys.argv[1]
+ditem = sys.argv[2]
 
 if dtype == "commits" and "commits" in jdata:
-  debug("\n%d commits loaded for %s" % (len(jdata["commits"]), jdata["url"]))
+  debug("%d commits loaded for %s" % (len(jdata["commits"]), jdata["url"]))
   try:
     PULL_URL = re.sub("compare/[a-z0-9]*...[a-z0-9]*$", "pull/", jdata["html_url"])
     RE_PULL  = re.compile("#([0-9]+)")
@@ -171,16 +175,16 @@ if dtype == "commits" and "commits" in jdata:
     sys.exit(1)
 
 elif dtype == "pulls":
-  debug("\n%d pull requests loaded" % len(jdata))
+  debug("%d pull requests loaded" % len(jdata))
   try:
     avatars = {}
     for c in jdata:
       if c["user"]: setavatar(avatars, c["user"])
 
     lastpr = 0
-    if len(sys.argv) == 3:
-      tmp = sys.argv[2]
-      lastpr = int(tmp) if tmp else 0
+    if len(sys.argv) == 4:
+      tmp = sys.argv[3]
+      lastpr = int(tmp) if tmp and tmp != "unknown" else 0
 
     if len(jdata) != 0:
       print(jdata[0]["number"])
@@ -218,12 +222,16 @@ die() {
 
 getcomponent()
 {
-  echo "$(echo "$2" | awk -F"/" -vF=$1 '{print $F}')"
+  local field="$1" string="$2"
+  echo "${string}" | cut -d/ -f${field}
 }
 
 getlatestsha()
 {
-  URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/commits?per_page=1&sha=$(getcomponent 3 "$1")"
+  local item="$1" owner_repo_branch="$2"
+  local URL RESPONSE
+
+  URL="${GITAPI}/$(getcomponent 1 "${owner_repo_branch}")/$(getcomponent 2 "${owner_repo_branch}")/commits?per_page=1&sha=$(getcomponent 3- "${owner_repo_branch}")"
   RESPONSE="$(webrequest "${URL}")" || return 1
 
   echo "${RESPONSE}" | python -c '
@@ -241,22 +249,27 @@ for item in jdata:
 
 getcommitdetails()
 {
-  URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/compare/$2...$3"
-  RESPONSE="$(webrequest "${URL}")" || return 1
-  [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >${BIN}/dbg_commits_$(echo "$1"|sed "s#/#_#g")
+  local item="$1" owner_repo_branch="$2" lastvalue="$3" crntvalue="$4"
+  local URL RESPONSE
 
-  echo "${RESPONSE}" | python -c "${PY_COMMIT_PR}" commits
+  URL="${GITAPI}/$(getcomponent 1 "${owner_repo_branch}")/$(getcomponent 2 "${owner_repo_branch}")/compare/${lastvalue}...${crntvalue}"
+  RESPONSE="$(webrequest "${URL}")" || return 1
+  [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >${BIN}/dbg_commits_$(echo "${owner_repo_branch}"|sed "s#/#_#g")
+
+  echo "${RESPONSE}" | python -c "${PY_COMMIT_PR}" commits "${item}"
 
   return $?
 }
 
 getpulldetails()
 {
-  URL="${GITAPI}/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/pulls"
-  RESPONSE="$(webrequest "${URL}")" || return 1
-  [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >${BIN}/dbg_pulls_$(echo "$1"|sed "s#/#_#g")
+  local item="$1" owner_repo_branch="$2" lastvalue="$3"
+  local URL RESPONSE
 
-  echo "${RESPONSE}" | python -c "${PY_COMMIT_PR}" pulls "$2"
+  URL="${GITAPI}/$(getcomponent 1 "${owner_repo_branch}")/$(getcomponent 2 "${owner_repo_branch}")/pulls"
+  RESPONSE="$(webrequest "${URL}")" || return 1
+  [ "${DEBUG}" = Y ] && echo "${RESPONSE}" >${BIN}/dbg_pulls_$(echo "${owner_repo_branch}"|sed "s#/#_#g")
+  echo "${RESPONSE}" | python -c "${PY_COMMIT_PR}" pulls "${item}" "${lastvalue}"
 
   return $?
 }
@@ -386,11 +399,12 @@ GHNOTIFY_DATA=ghnotify.dat
 GHNOTIFY_CDATA=ghnotify.commits
 GHNOTIFY_PDATA=ghnotify.pulls
 
-GHNOTIFY_CTEMP=$(mktemp)
-GHNOTIFY_PTEMP=$(mktemp)
-TMPFILE=$(mktemp)
+GHNOTIFY_WORKDIR=$(mktemp -d)
+GHNOTIFY_PTEMP=${GHNOTIFY_WORKDIR}/.ptemp
+GHNOTIFY_CTEMP=${GHNOTIFY_WORKDIR}/.ctemp
+TMPFILE=${GHNOTIFY_WORKDIR}/.tmpfile
 
-trap "rm -f ${GHNOTIFY_CTEMP} ${GHNOTIFY_PTEMP} ${TMPFILE}" EXIT
+trap "rm -rf ${GHNOTIFY_WORKDIR}" EXIT
 
 DEBUG=N
 DIAGNOSTICS=N
@@ -462,13 +476,6 @@ if [ ${PULLREQ} = Y ]; then
   cp ${GHNOTIFY_PDATA} ${GHNOTIFY_PTEMP}
 fi
 
-BODY=
-PROCESSED=0
-UNAVAILABLE=0
-UNAVAILABLE_ITEMS=
-UPDATED_ITEMS=
-NEWITEM=N
-
 HISTORY_OWNER_REPO=()
 
 findinlist()
@@ -481,132 +488,295 @@ findinlist()
   return 1
 }
 
+getworkqueue()
+{
+  local owner_repo_branch owner_repo name processed safe_name isduplicate
+  local plast pstatus clast cstatus
 
-while read -r OWNER_REPO_BRANCH NAME; do
-  printf "Processing: %-34s" "${NAME}..."
+  while read -r owner_repo_branch name; do
+    [ -z ${owner_repo_branch} ] && continue
 
-  PROCESSED=$((PROCESSED+1))
-  SAFE_NAME="$(htmlsafe "${NAME}")"
+    processed=$((processed+1))
+    safe_name="$(htmlsafe "${name}")"
 
-  OWNER_REPO="${OWNER_REPO_BRANCH%/*}"
+    owner_repo="${owner_repo_branch%/*}"
 
-  HASUPDATE=N
-
-  if findinlist "${OWNER_REPO}"; then
-    ISDUPLICATE=Y
-  else
-    ISDUPLICATE=N
-    HISTORY_OWNER_REPO+=($OWNER_REPO)
-  fi
-
-  if [ ${PULLREQ} == Y -a ${ISDUPLICATE} == N ]; then
-    LAST="$(grep "^${OWNER_REPO_BRANCH} " ${GHNOTIFY_PTEMP} | tail -1 | awk '{ print $2 }')"
-    [ -z "${LAST}" ] && NEWITEM=Y
-
-    DATA="$(getpulldetails "${OWNER_REPO_BRANCH}" "${LAST:-0}")" || die 1 "Failed to obtain pull request list for repository [${OWNER_REPO_BRANCH}]"
-    [ "${DATA}" == "ERROR" ] && echo " UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${SAFE_NAME}" && continue
-
-    CRNT="$(echo "${DATA}" | head -1)"
-    DATA="$(echo "${DATA}" | tail -n +2)"
-
-    [ -z "${DATA}" -o "${CRNT}" == "${LAST}" -o -z "${LAST}" ] && NODATA=Y || NODATA=N
-
-    [ -z "${CRNT}" ] && CRNT="0"
-
-    [ -z "${LAST}" -a -n "${CRNT}" ] && echo "${OWNER_REPO_BRANCH} ${CRNT}" >> ${GHNOTIFY_PTEMP}
-    [ -z "${LAST}" -a -n "${CRNT}" ] && LAST="${CRNT}"
-
-    sed -i "s${FIELDSEP}^${OWNER_REPO_BRANCH} ${LAST}\$${FIELDSEP}${OWNER_REPO_BRANCH} ${CRNT}${FIELDSEP}" ${GHNOTIFY_PTEMP}
-
-    if [ $NODATA == Y ]; then
-      echo -n " No new pull requests." 
+    if findinlist "${owner_repo}"; then
+      isduplicate=Y
     else
-      echo -n " $(echo "${DATA}" | wc -l) new pull requests."
-
-      URL="$(getpullsurl "${OWNER_REPO_BRANCH}")"
-
-      ITEM="${HTML_SUB}"
-      ITEM="${ITEM//@@ITEM.TYPE@@/Pulls}"
-      ITEM="${ITEM//@@ITEM.URL@@/${URL}}"
-      ITEM="${ITEM//@@ITEM.SUBJECT@@/${NAME}}"
-      ROWS=
-      EVEN=Y
-      while read -r avatar_url committer title; do
-        [ $EVEN == Y ] && COLOR="#f0f0f0" || COLOR="#fcfcff"
-        avatar="<img src=\"${avatar_url}\" style=\"height: 20px; width: 20px\" />"
-        ROW="<tr style=\"background-color: ${COLOR}; vertical-align: top\">"
-        ROW="${ROW}<td style=\"padding-left: 10px; padding-right:10px; padding-top:2px\">${avatar}</td>"
-        ROW="${ROW}<td style=\"padding-right: 10px; width: 100%\">${title}<br>"
-        ROW="${ROW}<span style=\"font-size: 6pt; color: grey\">${committer//${FIELDSEP}/ }</span></td>"
-        ROW="${ROW}</tr>"
-        [ -n "${ROWS}" ] && ROWS="${ROWS}${NEWLINE}${ROW}" || ROWS="${ROW}"
-        [ $EVEN == Y ] && EVEN=N || EVEN=Y
-      done <<< "${DATA}"
-
-      ITEM="${ITEM//@@ITEM.ROWS@@/${ROWS}}"
-      [ -n "${BODY}" ] && BODY="${BODY}${NEWLINE}${ITEM}" || BODY="${ITEM}"
-
-      HASUPDATE=Y
-    fi
-  fi
-
-  if [ ${COMMITS} == Y ]; then
-    LAST="$(grep "^${OWNER_REPO_BRANCH} " ${GHNOTIFY_CTEMP} | tail -1 | awk '{ print $2 }')"
-    [ -z "${LAST}" ] && NEWITEM=Y
-
-    CRNT="$(getlatestsha ${OWNER_REPO_BRANCH})" || die 1 "Failed to obtain current SHA for repository [${OWNER_REPO_BRANCH}]"
-    [ -z "${CRNT}" ] && echo " UNAVAILABLE" && UNAVAILABLE=$((UNAVAILABLE+1)) && UNAVAILABLE_ITEMS="${UNAVAILABLE_ITEMS}${FIELDSEP}${SAFE_NAME}" && continue
-
-    [ "${CRNT}" == "${LAST}" -o -z "${LAST}" ] && NODATA=Y|| NODATA=N
-
-    [ -z "${LAST}" -a -n "${CRNT}" ] && echo "${OWNER_REPO_BRANCH} ${CRNT}" >> ${GHNOTIFY_CTEMP}
-    [ -z "${LAST}" -a -n "${CRNT}" ] && LAST="${CRNT}"
-
-    sed -i "s${FIELDSEP}^${OWNER_REPO_BRANCH} ${LAST}\$${FIELDSEP}${OWNER_REPO_BRANCH} ${CRNT}${FIELDSEP}" ${GHNOTIFY_CTEMP}
-
-    if [ $NODATA == N ]; then
-      DATA="$(getcommitdetails "${OWNER_REPO_BRANCH}" "${LAST}" "${CRNT}")" || die 1 "Failed to obtain commit comparison for repository [${OWNER_REPO_BRANCH}]"
-      [ -z "${DATA}" -o "${DATA}" == "ERROR" ] && NODATA=Y
+      isduplicate=N
+      HISTORY_OWNER_REPO+=("${owner_repo}")
     fi
 
-    if [ $NODATA == Y ]; then
-      echo -n " No new commits."
+    if [ ${PULLREQ} == Y -a ${isduplicate} == N ]; then
+      pstatus=Y
+      plast="$(grep "^${owner_repo_branch} " ${GHNOTIFY_PTEMP} | tail -1 | awk '{ print $2 }')"
+      [ -z "${plast}" ] && echo "${owner_repo_branch} 0" >> ${GHNOTIFY_PTEMP}
     else
-      echo -n " $(echo "${DATA}" | wc -l) new commits."
+      plast=
+      pstatus=N
+    fi
 
-      URL="$(getcommitsurl "${OWNER_REPO_BRANCH}")"
+    if [ ${COMMITS} == Y ]; then
+      cstatus=Y
+      clast="$(grep "^${owner_repo_branch} " ${GHNOTIFY_CTEMP} | tail -1 | awk '{ print $2 }')"
+      [ -z "${clast}" ] && echo "${owner_repo_branch} 0" >> ${GHNOTIFY_CTEMP}
+    else
+      clast=
+      cstatus=N
+    fi
 
-      ITEM="${HTML_SUB}"
-      ITEM="${ITEM//@@ITEM.TYPE@@/Commits}"
-      ITEM="${ITEM//@@ITEM.URL@@/${URL}}"
-      ITEM="${ITEM//@@ITEM.SUBJECT@@/${NAME}}"
-      ROWS=
-      EVEN=Y
-      while read -r avatar_url committer title; do
-        [ $EVEN == Y ] && COLOR="#f0f0f0" || COLOR="#fcfcff"
-        avatar="<img src=\"${avatar_url}\" style=\"height: 20px; width: 20px\" />"
-        ROW="<tr style=\"background-color: ${COLOR}; vertical-align: top\">"
-        ROW="${ROW}<td style=\"padding-left: 10px; padding-right:10px; padding-top:2px\">${avatar}</td>"
-        ROW="${ROW}<td style=\"padding-right: 10px; width: 100%\">${title}<br>"
-        ROW="${ROW}<span style=\"font-size: 6pt; color: grey\">${committer//${FIELDSEP}/ }</span></td>"
-        ROW="${ROW}</tr>"
-        [ -n "${ROWS}" ] && ROWS="${ROWS}${NEWLINE}${ROW}" || ROWS="${ROW}"
-        [ $EVEN == Y ] && EVEN=N || EVEN=Y
-      done <<< "${DATA}"
+    printf "%04d|%s|%s|%s|%s|%s|%s|\n" "${processed}" "${plast:-unknown}" "${clast:-unknown}" "${pstatus}" "${cstatus}" "${owner_repo_branch}" "${safe_name}"
+  done <<< "$(grep -v "^#" ${GHNOTIFY_CONF})"
+}
 
-      ITEM="${ITEM//@@ITEM.ROWS@@/${ROWS}}"
-      [ -n "${BODY}" ] && BODY="${BODY}${NEWLINE}${ITEM}" || BODY="${ITEM}"
+process_work_items()
+{
+  local qitem qplast qclast qpstatus qcstatus qownerrepobranch qname
+  local jobn=0
 
-      HASUPDATE=Y
+  while read -r qitem qplast qclast qpstatus qcstatus qownerrepobranch qname; do
+    jobn=$((jobn + 1))
+    echo "[${qitem}] Processing ${qname}"
+    process_work_item "${qitem}" "${qownerrepobranch}" "${qname}" "${qplast}" "${qclast}" "${qpstatus}" "${qcstatus}" &
+
+    if [ ${jobn} -ge ${MAXJOBS} ]; then
+      wait
+      jobn=0
+    fi
+  done <<< "$(getworkqueue | sed 's/|/ /g')"
+  wait
+
+  if [ $(ls -1 ${GHNOTIFY_WORKDIR}/*.err 2>/dev/null | wc -l) -ne 0 ]; then
+    cat ${GHNOTIFY_WORKDIR}/*.err
+    die 1 "An error has occurred"
+  fi
+}
+
+process_work_item()
+{
+  local item="$1" owner_repo_branch="$2" name="$3" plast="$4" clast="$5" pstatus="$6" cstatus="$7"
+  local workfile=${GHNOTIFY_WORKDIR}/${item}
+
+  local pulls=${workfile}.pull comms=${workfile}.commit
+  local pdata=${pulls}.dat perror=${pulls}.err punavailable=${pulls}.unavailable pupdate=${pulls}.update pitem=${pulls}.item
+  local cdata=${comms}.dat cerror=${comms}.err cunavailable=${comms}.unavailable cupdate=${comms}.update citem=${comms}.item
+
+  local pcrnt pactual pnodata pneedupdate=N
+  local ccrnt cactual cnodata cneedupdate=N
+
+  if [ "${pstatus}" == "Y" ]; then
+    if ! getpulldetails "${item}" "${owner_repo_branch}" "${plast:-0}" >${pdata}; then
+      echo "ERROR: Failed to obtain pull request list for repository [${owner_repo_branch}]" >${perror}
+      return 1
+    fi
+    if [ "$(cat ${pdata})" == "ERROR" ]; then
+      echo "${name}" >${punavailable}
+    else
+      pcrnt="$(head -1 "${pdata}")"
+      pactual="$(tail -n +2 "${pdata}")"
+
+      [ "${plast}" == "unknown" ] && pneedupdate=Y
+      [ -z "${pactual}" -o "${pcrnt}" == "${plast}" -o "${plast}" == "unknown" ] && pnodata=Y || pnodata=N
+      [ -z "${pcrnt}" ] && pcrnt="0"
+
+      [ ${DEBUG} == Y ] && echo "[${item}] Last known pull request #${plast}, current remote pull request #${pcrnt}"
+
+      [ "${plast}" == "unknown" -a -n "${pcrnt}" ] && plast="${pcrnt}"
+
+      if [ ${pnodata} == N ]; then
+        echo "${pactual}" >${pdata}.actual
+        output_pull_requests "${pdata}.actual" "${owner_repo_branch}" "${name}" > ${pitem}
+        pneedupdate=Y
+      fi
+      [ ${pneedupdate} == Y ] && echo "${pcrnt}|${owner_repo_branch}|${name}" > ${pupdate}
     fi
   fi
-  echo
 
-  [ ${HASUPDATE} == Y ] && UPDATED_ITEMS="${UPDATED_ITEMS}${FIELDSEP}${SAFE_NAME}"
+  if [ "${cstatus}" == "Y" ]; then
+    if ! getlatestsha "${item}" "${owner_repo_branch}" >${cdata}; then
+      echo "ERROR: Failed to obtain current SHA for repository [${owner_repo_branch}]" >${cerror}
+      return 1
+    fi
 
-done <<< "$(grep -v "^#" ${GHNOTIFY_CONF})"
+    ccrnt="$(head -1 "${cdata}")"
+    if [ -z "${ccrnt}" ]; then
+      echo "${name}" >${cunavailable}
+    else
+      [ "${clast}" == "unknown" ] && cneedupdate=Y
+      [ "${ccrnt}" == "${clast}" -o "${clast}" == "unknown" ] && cnodata=Y || cnodata=N
 
-if [ -n "${UPDATED_ITEMS}" ]; then
+      [ ${DEBUG} == Y ] && echo "[${item}] Last known commit hash ${clast:0:7}, current remote commit hash ${ccrnt:0:7}"
+
+      [ "${clast}" == "unknown" -a -n "${ccrnt}" ] && clast="${ccrnt}"
+
+      if [ ${cnodata} == N ]; then
+        if getcommitdetails "${item}" "${owner_repo_branch}" "${clast}" "${ccrnt}" >${cdata}.actual; then
+          if [ -s ${cdata}.actual -a "$(cat ${cdata}.actual)" != "ERROR" ]; then
+            output_commits "${cdata}.actual" "${owner_repo_branch}" "${name}" > ${citem}
+            cneedupdate=Y
+          fi
+        else
+          echo "ERROR: Failed to obtain commit comparison for repository [${owner_repo_branch}]" >${cerror}
+          return 1
+        fi
+      fi
+      [ ${cneedupdate} == Y ] && echo "${ccrnt}|${owner_repo_branch}|${name}" > ${cupdate}
+    fi
+  fi
+}
+
+output_pull_requests()
+{
+  local datafile="$1" owner_repo_branch="$2" name="$3"
+  local url item rows even row color avatar_url committer title avatar
+
+  url="$(getpullsurl "${owner_repo_branch}")"
+
+  item="${HTML_SUB}"
+  item="${item//@@ITEM.TYPE@@/Pulls}"
+  item="${item//@@ITEM.URL@@/${url}}"
+  item="${item//@@ITEM.SUBJECT@@/${name}}"
+  rows=
+  even=Y
+  while read -r avatar_url committer title; do
+    [ ${even} == Y ] && color="#f0f0f0" || color="#fcfcff"
+    avatar="<img src=\"${avatar_url}\" style=\"height: 20px; width: 20px\" />"
+    row="<tr style=\"background-color: ${color}; vertical-align: top\">"
+    row="${row}<td style=\"padding-left: 10px; padding-right:10px; padding-top:2px\">${avatar}</td>"
+    row="${row}<td style=\"padding-right: 10px; width: 100%\">${title}<br>"
+    row="${row}<span style=\"font-size: 6pt; color: grey\">${committer//${FIELDSEP}/ }</span></td>"
+    row="${row}</tr>"
+    [ -n "${rows}" ] && rows="${rows}${NEWLINE}${row}" || rows="${row}"
+    [ ${even} == Y ] && even=N || even=Y
+  done < ${datafile}
+
+  echo "${item//@@ITEM.ROWS@@/${rows}}"
+}
+
+output_commits()
+{
+  local datafile="$1" owner_repo_branch="$2" name="${3}"
+  local url item rows even row color avatar_url committer title avatar
+
+  url="$(getcommitsurl "${owner_repo_branch}")"
+
+  item="${HTML_SUB}"
+  item="${item//@@ITEM.TYPE@@/Commits}"
+  item="${item//@@ITEM.URL@@/${url}}"
+  item="${item//@@ITEM.SUBJECT@@/${name}}"
+  rows=
+  even=Y
+  while read -r avatar_url committer title; do
+    [ ${even} == Y ] && color="#f0f0f0" || color="#fcfcff"
+    avatar="<img src=\"${avatar_url}\" style=\"height: 20px; width: 20px\" />"
+    row="<tr style=\"background-color: ${color}; vertical-align: top\">"
+    row="${row}<td style=\"padding-left: 10px; padding-right:10px; padding-top:2px\">${avatar}</td>"
+    row="${row}<td style=\"padding-right: 10px; width: 100%\">${title}<br>"
+    row="${row}<span style=\"font-size: 6pt; color: grey\">${committer//${FIELDSEP}/ }</span></td>"
+    row="${row}</tr>"
+    [ -n "${rows}" ] && rows="${rows}${NEWLINE}${row}" || rows="${row}"
+    [ ${even} == Y ] && even=N || even=Y
+  done < ${datafile}
+
+  echo "${item//@@ITEM.ROWS@@/${rows}}"
+}
+
+get_processed_count()
+{
+  cd ${GHNOTIFY_WORKDIR}
+  echo $(ls -1 * 2>/dev/null | cut -d. -f1 | sort -u | wc -l)
+}
+
+get_item_count()
+{
+  cd ${GHNOTIFY_WORKDIR}
+  echo $(ls -1 *.item 2>/dev/null | cut -d. -f1 | sort -u | wc -l)
+}
+
+get_updated_count()
+{
+  cd ${GHNOTIFY_WORKDIR}
+  echo $(ls -1 *.update 2>/dev/null | cut -d. -f1 | sort -u | wc -l)
+}
+
+get_unavailable_count()
+{
+  cd ${GHNOTIFY_WORKDIR}
+  echo $(ls -1 *.unavailable 2>/dev/null | cut -d. -f1 | sort -u | wc -l)
+}
+
+get_item_summary()
+{
+  local item newvalue owner_repo_branch name summary
+
+  cd ${GHNOTIFY_WORKDIR}
+  for item in $(ls -1 *.item 2>/dev/null | cut -d. -f1 | sort -u); do
+    if [ $(ls -1 ${item}.*.update | wc -l) -ne 0 ]; then
+      while read -r newvalue owner_repo_branch name; do
+        summary+=", ${name}"
+        break
+      done <<< "$(cat ${item}.*.update | sed 's/|/ /g')"
+    fi
+  done
+  echo "${summary:2}"
+}
+
+get_unavailable_details()
+{
+  local item status
+
+  cd ${GHNOTIFY_WORKDIR}
+  for item in $(ls -1 *.unavailable 2>/dev/null | cut -d. -f1 | sort -u); do
+    status+="<br>${NEWLINE}Unavailable: <span style=\"color:red\">$(cat ${item}.*.unavailable | head -1)</span>"
+  done
+  echo "${status}"
+}
+
+get_msg_body()
+{
+  local body item
+
+  cd ${GHNOTIFY_WORKDIR}
+  for item in $(ls -1 *.update | cut -d. -f1 | sort -u); do
+    if [ -f ${item}.pull.update -a -f ${item}.pull.item ]; then
+      [ -n "${body}" ] && body+="${NEWLINE}"
+      body+="$(cat ${item}.pull.item)"
+    fi
+
+    if [ -f ${item}.commit.update -a -f ${item}.commit.item ]; then
+      [ -n "${body}" ] && body+="${NEWLINE}"
+      body+="$(cat ${item}.commit.item)"
+    fi
+  done
+
+  echo "${body}"
+}
+
+save_updated_details()
+{
+  local item newvalue owner_repo_branch name
+  local target
+
+  cd ${GHNOTIFY_WORKDIR}
+  for item in $(ls -1 *.update 2>/dev/null | sort); do
+    while read -r newvalue owner_repo_branch name; do
+      break
+    done <<< "$(cat ${item} | sed 's/|/ /g')"
+
+    if [[ ${item} =~ .*\.pull\.update ]]; then
+      target=${GHNOTIFY_PTEMP}
+    elif [[ ${item} =~ .*\.commit\.update ]]; then
+      target=${GHNOTIFY_CTEMP}
+    fi
+
+    sed -i "s${FIELDSEP}^${owner_repo_branch} .*\$${FIELDSEP}${owner_repo_branch} ${newvalue}${FIELDSEP}" ${target}
+  done
+}
+
+process_work_items
+
+if [ $(get_item_count) -ne 0 ]; then
   rm -fr ${TMPFILE}
 
   if [ ${NOEMAIL} == N ]; then
@@ -617,31 +787,34 @@ if [ -n "${UPDATED_ITEMS}" ]; then
     echo "" >>${TMPFILE}
   fi
 
-  STATUS="Processed: ${PROCESSED}, Unavailable: ${UNAVAILABLE}"
-  [ -n "${UNAVAILABLE_ITEMS}" ] &&  STATUS="${STATUS}<span>${UNAVAILABLE_ITEMS//${FIELDSEP}/</span><br>${NEWLINE}Unavailable: <span style=\"color:red\">}</span>"
-
-  UPDATED_ITEMS="${UPDATED_ITEMS//${FIELDSEP}/, }"
+  STATUS="Processed: $(get_processed_count), Unavailable: $(get_unavailable_count)"
+  if [ $(get_unavailable_count) -ne 0 ]; then
+    STATUS+="<span>$(get_unavailable_details)</span>"
+  fi
 
   PAGE="${HTML_MAIN}"
-  PAGE="${PAGE//@@REPO.SUMMARY@@/${UPDATED_ITEMS:2}}"
-  PAGE="${PAGE//@@BODY.DETAIL@@/${BODY}}"
+  PAGE="${PAGE//@@REPO.SUMMARY@@/$(get_item_summary)}"
+  PAGE="${PAGE//@@BODY.DETAIL@@/$(get_msg_body)}"
   PAGE="${PAGE//@@SCRIPT.STATUS@@/${STATUS}}"
   PAGE="${PAGE//@@SCRIPT.VERSION@@/${VERSION}}"
 
   if [ ${NOEMAIL} == N ]; then
     echo "${PAGE}" | qprint -be >> ${TMPFILE}
-    cat ${TMPFILE} | ${BIN_MTA} || die 1 "Failed to send email"
+    cat ${TMPFILE} | ${BIN_MTA} || die 1 "ERROR: Failed to send email"
   else
     echo "${PAGE}" >> ${TMPFILE}
     mv ${TMPFILE} ${BIN}/email.html
   fi
 fi
 
+[ $(get_updated_count) -ne 0 ] && save_updated_details
+
 if [ ${DEBUG} == N ]; then
-  if [ -n "${UPDATED_ITEMS}" -o "${NEWITEM}" == "Y" ]; then
-    [ ${COMMITS} == Y ] && cp ${GHNOTIFY_CTEMP} ${GHNOTIFY_CDATA}
-    [ ${PULLREQ} == Y ] && cp ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
-  fi
+  cp ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
+  cp ${GHNOTIFY_CTEMP} ${GHNOTIFY_CDATA}
 fi
+
+#rm -fr /tmp/gdata
+#mv ${GHNOTIFY_WORKDIR} /tmp/gdata
 
 exit 0
