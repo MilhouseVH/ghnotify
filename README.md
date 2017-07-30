@@ -71,4 +71,4 @@ The script does *not* require the `git` utility to be installed - it communicate
 
 ##Sample Output
 
-![sample](http://i225.photobucket.com/albums/dd119/MilhouseVH/ghnotify_zpsb0448750.png)
+![sample](http://i.imgur.com/WyRt42F.png)
