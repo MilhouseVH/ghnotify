@@ -41,7 +41,7 @@
 #
 # (c) Neil MacLeod 2014-present :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.2.1"
+VERSION="v0.2.2"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -53,11 +53,13 @@ GHNOTIFY_CONF=ghnotify.conf
 GHNOTIFY_DATA=ghnotify.dat
 GHNOTIFY_CDATA=ghnotify.commits
 GHNOTIFY_PDATA=ghnotify.pulls
+GHNOTIFY_RDATA=ghnotify.releases
 [ -z "${GHNOTIFY_GITDIR}" ] && GHNOTIFY_GITDIR=git
 
 GHNOTIFY_WORKDIR=$(mktemp -d)
-GHNOTIFY_PTEMP=${GHNOTIFY_WORKDIR}/.ptemp
 GHNOTIFY_CTEMP=${GHNOTIFY_WORKDIR}/.ctemp
+GHNOTIFY_PTEMP=${GHNOTIFY_WORKDIR}/.ptemp
+GHNOTIFY_RTEMP=${GHNOTIFY_WORKDIR}/.rtemp
 GHNOTIFY_LOCKDIR=${GHNOTIFY_WORKDIR}/.locks
 TMPFILE=${GHNOTIFY_WORKDIR}/.tmpfile
 
@@ -418,6 +420,52 @@ for item in jdata:
   return 0
 }
 
+getalltags()
+{
+  local item="$1" output="$2" owner_repo_branch="$3" gitrepodir="$4"
+  local URL
+
+  if [ -n "${gitrepodir}" ]; then
+    (
+      cd ${gitrepodir}
+      echo "['$(git describe --tags $(git rev-list --tags --max-count=1 2>/dev/null) 2>/dev/null)']" > "${output}"
+    ) && return 0 || return 1
+  fi
+
+  URL="${GITAPI}/$(getcomponent 1 "${owner_repo_branch}")/$(getcomponent 2 "${owner_repo_branch}")/tags"
+  webrequest "${URL}" Y || return 1
+
+  cat ${WEBWORKFILE} | ${USEPYTHON} -c '
+import sys, json
+data=[]
+for line in sys.stdin: data.append(line)
+jdata = json.loads("".join(data))
+tags = []
+for page in jdata:
+  for item in page:
+    tags.append(item["name"])
+print(json.dumps(sorted(tags)))
+'> "${output}"
+
+  return 0
+}
+
+getnewtagdetails()
+{
+  local item="$1" output="$2" owner_repo_branch="$3" gitrepodir="$4" lastvalue="$5" crntvalue="$6"
+
+  ${USEPYTHON} -c '
+from __future__ import print_function
+import sys, json
+DEFAULT_AVATAR="https://assets-cdn.github.com/images/gravatars/gravatar-user-420.png"
+last=json.loads(sys.argv[1].replace(chr(39),"\""))
+crnt=json.loads(sys.argv[2].replace(chr(39),"\""))
+for tag in crnt:
+  if tag and tag not in last:
+    print("%s %s" % (DEFAULT_AVATAR, tag))
+' "${lastvalue}" "${crntvalue}" > "${output}"
+}
+
 getcommitdetails()
 {
   local item="$1" output="$2" owner_repo_branch="$3" gitrepodir="$4" lastvalue="$5" crntvalue="$6"
@@ -467,9 +515,9 @@ getcommitsurl()
       branch="${url##*/}"
       url=${url%/*}
       if [ -n "${branch}" ]; then
-        echo "${url/git:/https:/}/log/?h=${branch}"
+        echo "${url/git:/https:}/log/?h=${branch}"
       else
-        echo "${url/git:/https:/}/log"
+        echo "${url/git:/https:}/log"
       fi
     fi
   else
@@ -480,6 +528,26 @@ getcommitsurl()
 getpullsurl()
 {
   echo "https://github.com/$(getcomponent 1 "$1")/$(getcomponent 2 "$1")/pulls"
+}
+
+gettagurl()
+{
+  local url="$1"
+
+  if [[ ${url} =~ ^git@github.com: ]]; then
+    url="${url/git@github.com:/}"
+    echo "https://github.com/$(getcomponent 1 "${url}")/$(getcomponent 2 "${url}" "\.git$")/tags"
+  elif [[ ${url} =~ ^git:// ]]; then
+    if [[ ${url} =~ ^git://github.com ]]; then
+      url="${url/git:\/\/github.com\//}"
+      echo "https://github.com/$(getcomponent 1 "${url}")/$(getcomponent 2 "${url}" "\.git$")/tags"
+    else
+      url=${url%/*}
+      echo "${url/git:/https:}"
+    fi
+  else
+    echo "https://github.com/$(getcomponent 1 "${url}")/$(getcomponent 2 "${url}")/commits/tags"
+  fi
 }
 
 get_rate_limit()
@@ -504,8 +572,8 @@ get_rate_limit()
 
 webrequest()
 {
-  local url="$1"
-  local response result=0 curl
+  local url="$1" pages=${2:-N}
+  local response result=0 curl page=1
 
   # Escape +
   url="${url//+/%2B}"
@@ -513,12 +581,28 @@ webrequest()
   curl="curl --location --silent --show-error --retry 6 ${AUTHENTICATION} --connect-timeout 30"
   [ "${DIAGNOSTICS}" == "Y" ] && echo "WEB REQUEST : ${curl} \"${url}\""
 
-  rm -f ${WEBWORKFILE}
-  response="$(${curl} "${url}" -o ${WEBWORKFILE} 2>&1)" || result=1
+  rm -f ${WEBWORKFILE} ${WEBWORKFILE}.dmp
+  if [ ${pages} == N ]; then
+    response="$(${curl} "${url}" -o ${WEBWORKFILE} -D ${WEBWORKFILE}.dmp 2>&1)" || result=1
+  else
+    echo "[" >> ${WEBWORKFILE}
+    while [ ${result} -eq 0 ]; do
+      rm -f ${WEBWORKFILE}.tmp ${WEBWORKFILE}.dmp
+      response="$(${curl} "${url}?page=${page}&per_page=100" -o ${WEBWORKFILE}.tmp -D ${WEBWORKFILE}.dmp 2>&1)" || result=1
+      if [ ${result} -eq 0 ]; then
+        [ ${page} -ne 1 ] && echo "," >> ${WEBWORKFILE}
+        cat ${WEBWORKFILE}.tmp >> ${WEBWORKFILE}
+        grep -q "^Link: .* rel=\"last\"" ${WEBWORKFILE}.dmp || break
+        page=$((page + 1))
+      fi
+    done
+    echo "]" >> ${WEBWORKFILE}
+  fi
   touch ${WEBWORKFILE}
 
   if [ "${DIAGNOSTICS}" == "Y" ]; then
     echo "RESPONSE: $(cat ${WEBWORKFILE})"
+    echo "PAGES   : ${page}"
     echo "RESULT  : ${result}"
   fi
   if [ ${result} -ne 0 ]; then
@@ -562,7 +646,6 @@ clone_refresh_repo ()
 
   # Lock this repo to prevent concurrent access (ie. two different branches of same repo)
   lock_repo "${repodir}"
-
   (
     # Discard output if not logging
     [ "${DEBUG}" == "Y" -o "${DIAGNOSTICS}" == "Y" ] || exec 1>/dev/null
@@ -664,27 +747,34 @@ DIAGNOSTICS=N
 NOEMAIL=N
 COMMITS=
 PULLREQ=
+RELEASES=
 FILTER=,
 SHOWLIST=N
 
 for arg in $@; do
   case "${arg}" in
-    debug)   NOEMAIL=Y; export DEBUG=Y;;
-    diags)   DIAGNOSTICS=Y;;
-    noemail) NOEMAIL=Y;;
-    commits) COMMITS=Y;;
-    pulls)   PULLREQ=Y;;
+    debug)    NOEMAIL=Y; export DEBUG=Y;;
+    diags)    DIAGNOSTICS=Y;;
+    noemail)  NOEMAIL=Y;;
+    commits)  COMMITS=Y;;
+    pulls)    PULLREQ=Y;;
+    releases|tags) RELEASES=Y;;
     item=*|items=*|filter=*|filters=*)
-             FILTER=${FILTER}${arg#*=},;;
-    list)    SHOWLIST=Y;;
-    noclean) trap 'rm -rf -- "${PIDFILE}"' EXIT;;
+              FILTER=${FILTER}${arg#*=},;;
+    list)     SHOWLIST=Y;;
+    noclean)  trap 'rm -rf -- "${PIDFILE}"' EXIT;;
   esac
 done
 
-[ "${COMMITS}" == "Y" -a "${PULLREQ}" == "" ] && PULLREQ=N
-[ "${PULLREQ}" == "Y" -a "${COMMITS}" == "" ] && COMMITS=N
-[ $COMMITS ] || COMMITS=Y
-[ $PULLREQ ] || PULLREQ=Y
+if [ -z "${COMMITS}${PULLREQ}${RELEASES}" ]; then
+  COMMITS=Y
+  PULLREQ=Y
+  RELEASES=N
+fi
+
+COMMITS=${COMMITS:-N}
+PULLREQ=${PULLREQ:-N}
+RELEASES=${RELEASES:-N}
 
 # Try and find a usable mail transfer agent (MTA).
 #
@@ -708,9 +798,11 @@ EMAILTO="$(grep MAILTO /etc/crontab 2>/dev/null | awk -F= '{print $2}')"
 [ -f ~/${GHNOTIFY_DATA} ]       && mv ~/${GHNOTIFY_DATA} ~/${GHNOTIFY_CDATA}
 [ -f ${BIN}/${GHNOTIFY_DATA} ]  && mv ${BIN}/${GHNOTIFY_DATA} ${BIN}/${GHNOTIFY_CDATA}
 
-[ -f ${BIN}/${GHNOTIFY_CONF} ]   && GHNOTIFY_CONF="${BIN}/${GHNOTIFY_CONF}"     || GHNOTIFY_CONF=~/${GHNOTIFY_CONF}
-[ -f ${BIN}/${GHNOTIFY_CDATA} ]  && GHNOTIFY_CDATA="${BIN}/${GHNOTIFY_CDATA}"   || GHNOTIFY_CDATA=~/${GHNOTIFY_CDATA}
-[ -f ${BIN}/${GHNOTIFY_PDATA} ]  && GHNOTIFY_PDATA="${BIN}/${GHNOTIFY_PDATA}"   || GHNOTIFY_PDATA=~/${GHNOTIFY_PDATA}
+# Absolute paths
+[ -f ${BIN}/${GHNOTIFY_CONF} ]  && GHNOTIFY_CONF="${BIN}/${GHNOTIFY_CONF}"   || GHNOTIFY_CONF=~/${GHNOTIFY_CONF}
+GHNOTIFY_CDATA=$(dirname "${GHNOTIFY_CONF}")/${GHNOTIFY_CDATA}
+GHNOTIFY_PDATA=$(dirname "${GHNOTIFY_CONF}")/${GHNOTIFY_PDATA}
+GHNOTIFY_RDATA=$(dirname "${GHNOTIFY_CONF}")/${GHNOTIFY_RDATA}
 
 # If an absolute path then use it if it exists
 if ! [ "${GHNOTIFY_GITDIR:0:1}" == "/" -a -d "${GHNOTIFY_GITDIR}" ]; then
@@ -734,12 +826,14 @@ if [ -f ${CHECK_FILE} -a ${CHECK_INTERVAL_DAYS} -ne 0 ]; then
 fi
 
 if [ "${DEBUG}" == "Y" ]; then
-  echo "Pull Requests : ${PULLREQ}" | logger init
   echo "Commits       : ${COMMITS}" | logger init
+  echo "Pull Requests : ${PULLREQ}" | logger init
+  echo "Releases      : ${RELEASES}" | logger init
   echo "Using Python  : ${USEPYTHON}" | logger init
   echo "Config File   : ${GHNOTIFY_CONF}" | logger init
   echo "Commit DB     : ${GHNOTIFY_CDATA}" | logger init
   echo "Pull Req DB   : ${GHNOTIFY_PDATA}" | logger init
+  echo "Release DB    : ${GHNOTIFY_RDATA}" | logger init
   echo "Git Directory : ${GHNOTIFY_GITDIR}" | logger init
   echo "Temp Directory: ${GHNOTIFY_WORKDIR}" | logger init
   echo "MTA Path      : ${BIN_MTA}" | logger init
@@ -754,6 +848,11 @@ fi
 if [ "${PULLREQ}" == "Y" ]; then
   [ ! -f ${GHNOTIFY_PDATA} ] && touch ${GHNOTIFY_PDATA}
   cp ${GHNOTIFY_PDATA} ${GHNOTIFY_PTEMP}
+fi
+
+if [ "${RELEASES}" == "Y" ]; then
+  [ ! -f ${GHNOTIFY_RDATA} ] && touch ${GHNOTIFY_RDATA}
+  cp ${GHNOTIFY_RDATA} ${GHNOTIFY_RTEMP}
 fi
 
 HISTORY_OWNER_REPO=()
@@ -771,7 +870,7 @@ findinlist()
 getworkqueue()
 {
   local owner_repo_branch owner_repo name safe_name isduplicate
-  local plast pstatus clast cstatus
+  local plast pstatus clast cstatus rlast rstatus
   local item=0 izeros
 
   while read -r owner_repo_branch name; do
@@ -807,30 +906,41 @@ getworkqueue()
       cstatus=Y
       clast="$(grep "^${owner_repo_branch} " ${GHNOTIFY_CTEMP} | tail -1 | awk '{ print $2 }')"
       [ -z "${clast}" ] && echo "${owner_repo_branch} 0" >> ${GHNOTIFY_CTEMP}
+      [ "${clast}" = "0" ] && clast=
     else
       clast=
       cstatus=N
     fi
 
-    printf "%s|%s|%s|%s|%s|%s|%s|\n" "${izeros}" "${plast:-unknown}" "${clast:-unknown}" "${pstatus}" "${cstatus}" "${owner_repo_branch}" "${safe_name}"
+    if [ "${RELEASES}" == "Y" -a "${isduplicate}" == "N" ]; then
+      rstatus=Y
+      rlast="$(grep "^${owner_repo_branch} " ${GHNOTIFY_RTEMP} | tail -1 | cut -d' ' -f2-)"
+      [ -z "${rlast}" ] && echo "${owner_repo_branch} []" >> ${GHNOTIFY_RTEMP}
+    else
+      rlast=
+      rstatus=N
+    fi
+
+    printf "%s|%s|%s|%s|%s|%s|%s|%s|%s|\n" "${izeros}" "${plast:-unknown}" "${clast:-unknown}" "${rlast:-unknown}" "${pstatus}" "${cstatus}" "${rstatus}" "${owner_repo_branch}" "${safe_name}"
+#[ ${item} -ge 1 ] && break
   done <<< "$(grep -v "^#" ${GHNOTIFY_CONF})"
 }
 
 process_work_items()
 {
-  local qitem qplast qclast qpstatus qcstatus qownerrepobranch qname
+  local qitem qplast qclast qrlast qpstatus qcstatus qrstatus qownerrepobranch qname
   local jobn=0
 
-  while read -r qitem qplast qclast qpstatus qcstatus qownerrepobranch qname; do
+  while IFS="|" read -r qitem qplast qclast qrlast qpstatus qcstatus qrstatus qownerrepobranch qname; do
     jobn=$((jobn + 1))
 
     echo "Processing ${qname}" | logger ${qitem}
 
     if [ ${SHOWLIST} != Y ]; then
       if [ "${DEBUG}" == "Y" -o "${DIAGNOSTICS}" == "Y" ]; then
-        ( process_work_item "${qitem}" "${qownerrepobranch}" "${qname}" "${qplast}" "${qclast}" "${qpstatus}" "${qcstatus}" | logger "${qitem}" ) &
+        ( process_work_item "${qitem}" "${qownerrepobranch}" "${qname}" "${qplast}" "${qclast}" "${qrlast}" "${qpstatus}" "${qcstatus}" "${qrstatus}" | logger "${qitem}" ) &
       else
-        process_work_item "${qitem}" "${qownerrepobranch}" "${qname}" "${qplast}" "${qclast}" "${qpstatus}" "${qcstatus}" &
+        process_work_item "${qitem}" "${qownerrepobranch}" "${qname}" "${qplast}" "${qclast}" "${qrlast}" "${qpstatus}" "${qcstatus}" "${qrstatus}" &
       fi
 
       if [ ${jobn} -ge ${MAXJOBS} ]; then
@@ -838,7 +948,7 @@ process_work_items()
         jobn=0
       fi
     fi
-  done <<< "$(getworkqueue | sed 's/|/ /g')"
+  done <<< "$(getworkqueue)"
   wait
 
   if [ $(ls -1 ${GHNOTIFY_WORKDIR}/*.err 2>/dev/null | wc -l) -ne 0 ]; then
@@ -849,18 +959,21 @@ process_work_items()
 
 process_work_item()
 {
-  local item="$1" owner_repo_branch="$2" name="$3" plast="$4" clast="$5" pstatus="$6" cstatus="$7"
+  local item="$1" owner_repo_branch="$2" name="$3" plast="$4" clast="$5" rlast="$6" pstatus="$7" cstatus="$8" rstatus="$9"
   local workfile=${GHNOTIFY_WORKDIR}/${item}
   local githash gitrepodir
 
   WEBWORKFILE=${workfile}.webrequest
 
-  local pulls=${workfile}.pull comms=${workfile}.commit
+  local pulls=${workfile}.pull comms=${workfile}.commit rels=${workfile}.release
+
   local pdata=${pulls}.dat perror=${pulls}.err punavailable=${pulls}.unavailable pupdate=${pulls}.update pitem=${pulls}.item
   local cdata=${comms}.dat cerror=${comms}.err cunavailable=${comms}.unavailable cupdate=${comms}.update citem=${comms}.item
+  local rdata=${rels}.dat  rerror=${rels}.err  runavailable=${rels}.unavailable  rupdate=${rels}.update  ritem=${rels}.item
 
   local pcrnt pactual pnodata pneedupdate=N
   local ccrnt cactual cnodata cneedupdate=N
+  local rcrnt ractual rnodata rneedupdate=N
 
   if [[ ${owner_repo_branch} =~ ^git[@:] ]]; then
     githash="$(echo "${owner_repo_branch%/*}" | md5sum | awk '{print $1}')"
@@ -932,6 +1045,38 @@ process_work_item()
     fi
   fi
 
+  if [ "${rstatus}" == "Y" ]; then
+    if ! getalltags "${item}" "${rdata}" "${owner_repo_branch}" "${gitrepodir}"; then
+      echo "ERROR: Failed to obtain current tags for repository [${owner_repo_branch}]" >${cerror}
+      return 1
+    fi
+
+    rcrnt="$(head -1 "${rdata}")"
+    if [ -z "${rcrnt}" ]; then
+      echo "${name}" >${runavailable}
+    else
+      [ "${rlast}" == "unknown" ] && rneedupdate=Y
+      [ "${rcrnt}" == "${rlast}" -o "${rlast}" == "unknown" ] && rnodata=Y || rnodata=N
+
+      [ "${DEBUG}" == "Y" ] && echo -e "Last known tags  ${rlast}\nCrnt remote tags ${rcrnt}"
+
+      [ "${rlast}" == "unknown" -a -n "${rcrnt}" ] && rlast="${rcrnt}"
+
+      if [ "${rnodata}" == "N" ]; then
+        if getnewtagdetails "${item}" "${rdata}.actual" "${owner_repo_branch}" "${gitrepodir}" "${rlast}" "${rcrnt}"; then
+          if [ -s ${rdata}.actual -a "$(cat ${rdata}.actual)" != "ERROR" ]; then
+            output_tags "${rdata}.actual" "${owner_repo_branch}" "${name}" > ${ritem}
+            rneedupdate=Y
+          fi
+        else
+          echo "ERROR: Failed to obtain tag comparison for repository [${owner_repo_branch}]" >${rerror}
+          return 1
+        fi
+      fi
+      [ "${rneedupdate}" == "Y" ] && echo "${rcrnt}|${owner_repo_branch}|${name}" > ${rupdate}
+    fi
+  fi
+
   [ -n "${gitrepodir}" ] && unlock_repo
 }
 
@@ -991,10 +1136,39 @@ output_commits()
   echo "${item//@@ITEM.ROWS@@/${rows}}"
 }
 
+output_tags()
+{
+  local datafile="$1" owner_repo_branch="$2" name="${3}"
+  local url item rows even row color avatar_url committer title avatar
+  local committer=$(getcomponent 1 "${owner_repo_branch}")
+
+  url="$(gettagurl "${owner_repo_branch}")"
+
+  item="${HTML_SUB}"
+  item="${item//@@ITEM.TYPE@@/Tags}"
+  item="${item//@@ITEM.URL@@/${url}}"
+  item="${item//@@ITEM.SUBJECT@@/${name}}"
+  rows=
+  even=Y
+  while read -r avatar_url title; do
+    [ "${even}" == "Y" ] && color="#f0f0f0" || color="#fcfcff"
+    avatar="<img src=\"${avatar_url}\" style=\"height: 20px; width: 20px\" />"
+    row="<tr style=\"background-color: ${color}; vertical-align: top\">"
+    row="${row}<td style=\"padding-left: 10px; padding-right:10px; padding-top:2px\">${avatar}</td>"
+    row="${row}<td style=\"padding-right: 10px; width: 100%\">${title}<br>"
+    row="${row}<span style=\"font-size: 6pt; color: grey\">${committer//${FIELDSEP}/ }</span></td>"
+    row="${row}</tr>"
+    [ -n "${rows}" ] && rows="${rows}${NEWLINE}${row}" || rows="${row}"
+    [ "${even}" == "Y" ] && even=N || even=Y
+  done < ${datafile}
+
+  echo "${item//@@ITEM.ROWS@@/${rows}}"
+}
+
 get_processed_count()
 {
   cd ${GHNOTIFY_WORKDIR}
-  echo $(ls -1 * 2>/dev/null | cut -d. -f1 | sort -u | wc -l)
+  echo $(ls -1 * 2>/dev/null | grep -v webrequest | cut -d. -f1 | sort -u | wc -l)
 }
 
 get_item_count()
@@ -1022,10 +1196,10 @@ get_item_summary()
   cd ${GHNOTIFY_WORKDIR}
   for item in $(ls -1 *.item 2>/dev/null | cut -d. -f1 | sort -u); do
     if [ $(ls -1 ${item}.*.update | wc -l) -ne 0 ]; then
-      while read -r newvalue owner_repo_branch name; do
+      while IFS="|" read -r newvalue owner_repo_branch name; do
         summary+=", ${name}"
         break
-      done <<< "$(cat ${item}.*.update | sed 's/|/ /g')"
+      done <<< "$(cat ${item}.*.update)"
     fi
   done
   echo "${summary:2}"
@@ -1048,15 +1222,12 @@ get_msg_body()
 
   cd ${GHNOTIFY_WORKDIR}
   for item in $(ls -1 *.update | cut -d. -f1 | sort -u); do
-    if [ -f ${item}.pull.update -a -f ${item}.pull.item ]; then
-      [ -n "${body}" ] && body+="${NEWLINE}"
-      body+="$(cat ${item}.pull.item)"
-    fi
-
-    if [ -f ${item}.commit.update -a -f ${item}.commit.item ]; then
-      [ -n "${body}" ] && body+="${NEWLINE}"
-      body+="$(cat ${item}.commit.item)"
-    fi
+    for subitem in pull commit release; do
+      if [ -f ${item}.${subitem}.update -a -f ${item}.${subitem}.item ]; then
+        [ -n "${body}" ] && body+="${NEWLINE}"
+        body+="$(cat ${item}.${subitem}.item)"
+      fi
+    done
   done
 
   echo "${body}"
@@ -1069,14 +1240,16 @@ save_updated_details()
 
   cd ${GHNOTIFY_WORKDIR}
   for item in $(ls -1 *.update 2>/dev/null | sort); do
-    while read -r newvalue owner_repo_branch name; do
+    while IFS="|" read -r newvalue owner_repo_branch name; do
       break
-    done <<< "$(cat ${item} | sed 's/|/ /g')"
+    done <<< "$(cat ${item})"
 
     if [[ ${item} =~ .*\.pull\.update ]]; then
       target=${GHNOTIFY_PTEMP}
     elif [[ ${item} =~ .*\.commit\.update ]]; then
       target=${GHNOTIFY_CTEMP}
+    elif [[ ${item} =~ .*\.release\.update ]]; then
+      target=${GHNOTIFY_RTEMP}
     fi
 
     sed -i "s${FIELDSEP}^${owner_repo_branch} .*\$${FIELDSEP}${owner_repo_branch} ${newvalue}${FIELDSEP}" ${target}
@@ -1123,8 +1296,9 @@ fi
 [ $(get_updated_count) -ne 0 ] && save_updated_details
 
 if [ "${DEBUG}" == "N" ]; then
-  [ -f ${GHNOTIFY_PTEMP} ] && cp ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
   [ -f ${GHNOTIFY_CTEMP} ] && cp ${GHNOTIFY_CTEMP} ${GHNOTIFY_CDATA}
+  [ -f ${GHNOTIFY_PTEMP} ] && cp ${GHNOTIFY_PTEMP} ${GHNOTIFY_PDATA}
+  [ -f ${GHNOTIFY_RTEMP} ] && cp ${GHNOTIFY_RTEMP} ${GHNOTIFY_RDATA}
 fi
 
 exit 0

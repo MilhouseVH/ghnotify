@@ -16,6 +16,7 @@ xbmc/xbmc/master                XBMC (master)
 popcornmix/xbmc/newclock3       Popcornmix (newclock3)
 Pulse-Eight/libcec/master       libcec (master)
 sahlberg/libnfs/master          libnfs (master)
+git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/master Kernel Firmware (master)
 ```
 
 Including the ghnotify repository is a handy way to be notified of any updates!
@@ -41,15 +42,19 @@ The script has been tested with the msmtp MTA. Other MTAs may work (eg. sendmail
 
 ##Arguments
 
-When run with no arguments, both commits and pulls will be processed, and an email will be sent to the configured email address.
+When run with no arguments, both commits and pulls will be processed (but not tags), and an email will be sent to the configured email address.
 
-`debug` - see Debugging section below  
-`diags` - view web request/response/result details  
-`noemail` - don't send the email (create email.html instead)  
-`commits` - process only commits  
-`pulls` - process only pull requests  
+`debug` - see Debugging section below
+`diags` - view web request/response/result details
+`noemail` - don't send the email (create email.html instead)
+`commits` - process only commits
+`pulls` - process only pull requests
+`tags` - process only tags/releases
+`item=#` - process only item #, eg. `item=34`
 
 Specifying `commits` or `pulls` might be useful if you want to be notified of commits often (eg. scheduling the script to run every 30 minutes) but only want to be notified of pull rquests once or twice a day, in which case create two cron entries, one for commits and one for pulls. Otherwise commit and pull request notifications will be sent in the same email.
+
+Since tags/releases change less often, this might be something that is checked once or twice a day.
 
 ##Debugging
 
@@ -67,7 +72,7 @@ You will require a Mail Transfer Agent, configured with your email account detai
 
 `python` (v2.7+) and `curl` are required.
 
-The script does *not* require the `git` utility to be installed - it communicates with github.com using the GitHub web services API.
+The script does *not* require the `git` utility to be installed unless git:// repositories are being cloned (communication with github.com uses only the GitHub web services API).
 
 ##Sample Output
 
