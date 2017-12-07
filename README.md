@@ -5,7 +5,7 @@ Sends an automatic summary email of all new commits and/or pull requests for Git
 
 Configure the repositories to be monitored in `~/ghnotify.conf` (owner, repository and branch, plus a "display" name that will appear in the email) :
 
-######Example:
+###### Example:
 ```
 #owner/repository/branch        display name
 MilhouseVH/ghnotify/master      GitHub Notify (master)
@@ -40,7 +40,7 @@ Whenever the script is run succesfully, it will record the latest commit SHA for
 
 The script has been tested with the msmtp MTA. Other MTAs may work (eg. sendmail, ssmtp) but are untested - patches welcome.
 
-##Arguments
+## Arguments
 
 When run with no arguments, both commits and pulls will be processed (but not tags), and an email will be sent to the configured email address.
 
@@ -56,7 +56,7 @@ Specifying `commits` or `pulls` might be useful if you want to be notified of co
 
 Since tags/releases change less often, this might be something that is checked once or twice a day.
 
-##Debugging
+## Debugging
 
 Interactively run the script with the `noemail` parameter to avoid sending an email, and instead a file called `email.html` will be created which can be loaded in your web browser. The `ghnotify.dat` file will not be updated unless an email is sent successfully.
 
@@ -64,7 +64,7 @@ Use the `debug` option to output additional information. Data for each repositor
 
 When run without any parameters, an email will be sent only if there has been at least one new commit or pull request.
 
-##Dependencies
+## Dependencies
 
 If it is not already installed on your system, you will need to install the `qprint` utility (`apt-get install qprint`) to encode quoted-printable text.
 
@@ -74,6 +74,6 @@ You will require a Mail Transfer Agent, configured with your email account detai
 
 The script does *not* require the `git` utility to be installed unless git:// repositories are being cloned (communication with github.com uses only the GitHub web services API).
 
-##Sample Output
+## Sample Output
 
 ![sample](http://i.imgur.com/WyRt42F.png)
