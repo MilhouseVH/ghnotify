@@ -546,7 +546,7 @@ gettagurl()
       echo "${url/git:/https:}"
     fi
   else
-    echo "https://github.com/$(getcomponent 1 "${url}")/$(getcomponent 2 "${url}")/commits/tags"
+    echo "https://github.com/$(getcomponent 1 "${url}")/$(getcomponent 2 "${url}")/tags"
   fi
 }
 
