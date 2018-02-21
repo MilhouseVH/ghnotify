@@ -41,7 +41,7 @@
 #
 # (c) Neil MacLeod 2014-present :: ghnotify@nmacleod.com :: https://github.com/MilhouseVH/ghnotify
 #
-VERSION="v0.2.2"
+VERSION="v0.2.3"
 
 BIN=$(readlink -f $(dirname $0))
 
@@ -152,9 +152,22 @@ def getavatar(list, creator, size=20, enable_gravatar=False):
 
 def htmlsafe(input):
   if input:
-    return input.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    tmp = input.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
   else:
-    return input
+    tmp = input
+  return toUnicode(tmp)
+
+def toUnicode(data):
+  if sys.version_info >= (3, 0): return data
+
+  if isinstance(data, basestring):
+    if not isinstance(data, unicode):
+      try:
+        data = unicode(data, encoding="utf-8", errors="ignore")
+      except UnicodeDecodeError:
+        pass
+
+  return data
 
 data=[]
 for line in sys.stdin: data.append(line)
@@ -164,7 +177,7 @@ dfile = sys.argv[1]
 ditem = sys.argv[2]
 dtype = sys.argv[3]
 
-output = io.open(dfile, "w", encoding="utf-8")
+output = codecs.open(dfile, "w", encoding="utf-8")
 
 if "message" in jdata:
   output.write(u"ERROR\n")
@@ -297,9 +310,22 @@ def getavatar(size=20):
 
 def htmlsafe(input):
   if input:
-    return input.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    tmp = input.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
   else:
-    return input
+    tmp = input
+  return toUnicode(tmp)
+
+def toUnicode(data):
+  if sys.version_info >= (3, 0): return data
+
+  if isinstance(data, basestring):
+    if not isinstance(data, unicode):
+      try:
+        data = unicode(data, encoding="utf-8", errors="ignore")
+      except UnicodeDecodeError:
+        pass
+
+  return data
 
 def epoch2date(epoch):
   return datetime.datetime.fromtimestamp(int(epoch.split(" ")[0])).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -307,7 +333,7 @@ def epoch2date(epoch):
 dfile = sys.argv[1]
 ditem = sys.argv[2]
 
-output = io.open(dfile, "w")
+output = codecs.open(dfile, "w", encoding="utf-8")
 
 jdata={"commits": []}
 
