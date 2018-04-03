@@ -502,7 +502,7 @@ getcommitdetails()
     git --git-dir="${gitrepodir}/.git" \
       log ${lastvalue}...${crntvalue} \
       --date="raw" \
-      --pretty="tformat:%an%x09%ad%x09%ae%x09%cn%x09%cd%x09%ce%x09%s" | \
+      --pretty="tformat:%an%x09%ad%x09%ae%x09%cn%x09%cd%x09%ce%x09%s" 2>/dev/null | \
       ${USEPYTHON} -c "${PY_COMMIT_GIT}" "${output}" "${item}"
   else
     URL="${GITAPI}/$(getcomponent 1 "${owner_repo_branch}")/$(getcomponent 2 "${owner_repo_branch}")/compare/${lastvalue}...${crntvalue}"
@@ -676,15 +676,15 @@ clone_refresh_repo ()
     # Discard output if not logging
     [ "${DEBUG}" == "Y" -o "${DIAGNOSTICS}" == "Y" ] || exec 1>/dev/null
 
-    if [ ! -d ${repodir} ]; then
-      git clone ${repourl} ${repodir} 2>&1 || return 1
+    if [ -d ${repodir} ]; then
+      cd ${repodir}
+      git checkout ${repobranch} 2>&1 && git pull 2>&1 && exit 0
     fi
 
-    cd ${repodir}
-    git checkout ${repobranch} 2>&1 || return 1
-    git pull 2>&1 || true
+    cd ${GHNOTIFY_GITDIR}
+    rm -fr ${repodir}
+    git clone ${repourl} ${repodir} 2>&1
   )
-
   return ${PIPESTATUS[0]}
 }
 
@@ -1060,6 +1060,8 @@ process_work_item()
         if getcommitdetails "${item}" "${cdata}.actual" "${owner_repo_branch}" "${gitrepodir}" "${clast}" "${ccrnt}"; then
           if [ -s ${cdata}.actual -a "$(cat ${cdata}.actual)" != "ERROR" ]; then
             output_commits "${cdata}.actual" "${owner_repo_branch}" "${name}" > ${citem}
+            cneedupdate=Y
+          elif [ ! -s ${cdata}.actual -a "${clast}" != "${ccrnt}" ]; then
             cneedupdate=Y
           fi
         else
