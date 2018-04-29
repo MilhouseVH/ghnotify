@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 0.2.3 (29/04/2018)
+* Fix: tag url
+* Fix: utf-8 encoding
+* Fix: improve git recovery when history is rewritten
+
 ## Version 0.2.2 (07/12/2017)
 * Add: Support notification of new tags (releases)
 
